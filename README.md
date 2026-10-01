@@ -6,20 +6,29 @@
 
 [English](#english) | [中文说明](#chinese)
 
+<p align="center">
+  <img src="assets/demo.webp" alt="QuickLook.Plugin.DwgsViewer Demo" width="850">
+</p>
+
 ---
 
 <a name="english"></a>
 ## English
 
-A powerful, high-performance [QuickLook](https://github.com/QL-Win/QuickLook) plugin for AutoCAD, GstarCAD, and ZWCAD drawings (`.dwg` and `.dxf`). 
+A powerful, high-performance [QuickLook](https://github.com/QL-Win/QuickLook) plugin for AutoCAD, GstarCAD, and ZWCAD drawings (`.dwg` and `.dxf`).
 
-Pressing <kbd>Spacebar</kbd> on any `.dwg` or `.dxf` file automatically discovers all drawings in the current directory, presenting a responsive thumbnail gallery with instant CAD block insertion, ranking, and search!
+Pressing <kbd>Spacebar</kbd> on any `.dwg` or `.dxf` file opens it instantly as a full-resolution vector drawing. If other drawings exist in the same folder, click <kbd>◀ 目录图纸</kbd> to browse them as a responsive thumbnail gallery with instant CAD block insertion, ranking, and search!
 
 ### ✨ Key Features
 
+- **Instant Single-Drawing Preview**:
+  - Opens the selected `.dwg` / `.dxf` directly in the full vector detail view — no extra clicks.
+  - <kbd>◀ 目录图纸</kbd> returns to the folder gallery, and is automatically hidden when the folder holds only one drawing.
 - **Folder-Wide Drawing Gallery**:
   - Automatically scans and lists all `.dwg` and `.dxf` drawings in the current folder.
-  - Initial selection auto-scrolls into view.
+  - Current drawing auto-scrolls into view.
+- **Pure Black Canvas**:
+  - Classic AutoCAD dark canvas by default, with one-key <kbd>B</kbd> toggle to light background.
 - **Ultra-Fast Thumbnail Extraction**:
   - Directly extracts embedded binary preview bitmaps from DWG headers in $< 1\text{ms}$.
   - Seamless Windows Shell thumbnail fallback (`IShellItemImageFactory`) for `.dxf` and all CAD versions.
@@ -66,9 +75,36 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
   - If present, the plugin automatically upgrades to the corresponding vector rendering pipeline with zero recompilation needed!
 ### 📦 Installation
 
+#### Method 1: Spacebar One-Click Install (Recommended)
 1. Download `QuickLook.Plugin.DwgsViewer.qlplugin` from [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases).
-2. Select the file in File Explorer and press <kbd>Spacebar</kbd>.
-3. Click **Install**, then restart QuickLook.
+2. Select the downloaded file in File Explorer and press <kbd>Spacebar</kbd>.
+3. Click **Install** on the QuickLook prompt, then restart QuickLook.
+
+#### Method 2: Manual Installation
+Extract or copy the contents of `QuickLook.Plugin.DwgsViewer.qlplugin` (rename to `.zip` if needed) to:
+```
+%APPDATA%\pooi.moe\QuickLook\QuickLook.Plugin\QuickLook.Plugin.DwgsViewer\
+```
+Then restart QuickLook.
+
+### 🔧 Optional: High-Fidelity Commercial Driver
+
+The plugin works out of the box with its built-in open-source engine. To enable commercial-grade rendering, simply drop the driver DLLs into the folder above (or its `Drivers\` subfolder) — **no recompilation required**:
+
+| Driver | Required files | Result |
+|---|---|---|
+| WoutWare CadLib | `WW.Cad.dll`, `WW.dll`, `WW.GL.dll`, `WW.License.dll` | Multi-threaded vector rendering |
+| CADSoftTools | `CADImport.dll` | CAD .NET vector rendering |
+
+The plugin probes for these drivers on startup and automatically upgrades when they are present.
+
+### 🛠 Build from Source
+
+```bash
+cd QuickLook.Plugin.DwgsViewer
+dotnet build -c Release
+powershell -ExecutionPolicy Bypass -File pack.ps1
+```
 
 ---
 
@@ -77,12 +113,17 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
 
 为 Windows 效率神器 [QuickLook](https://github.com/QL-Win/QuickLook) 打造的 AutoCAD / 浩辰CAD / 中望CAD 图纸（`.dwg` 与 `.dxf`）全能预览与图库管理插件。
 
-在文件资源管理器中选中任意一张 `.dwg` 或 `.dxf` 图纸按下 <kbd>空格键</kbd>，即可自动检索当前目录中的全部图纸，以现代化缩略图画廊集中呈现，并支持一键插入至运行中的 CAD 软件！
+在文件资源管理器中选中任意一张 `.dwg` 或 `.dxf` 图纸按下 <kbd>空格键</kbd>，即可**直接秒开该图纸的满分辨率矢量大图**；若同目录下还有其他图纸，点击左上角 <kbd>◀ 目录图纸</kbd> 即可切换到现代化缩略图画廊，并支持一键插入至运行中的 CAD 软件！
 
 ### ✨ 核心特性
 
+- **秒开单图大图预览**：
+  - 空格触发即刻直接进入当前图纸的矢量大图详情视图，无需多余点击。
+  - <kbd>◀ 目录图纸</kbd> 一键返回目录画廊；当同目录仅有一张图纸时，该按钮会**自动隐藏**，界面更清爽。
+- **纯黑专业画布**：
+  - 默认使用 AutoCAD 经典纯黑底色画布，按 <kbd>B</kbd> 一键切换深色 / 浅色主题。
 - **目录级自动图纸检索**：
-  - 空格触发任意一张图纸，自动扫描当前目录下的所有 `.dwg` 与 `.dxf` 文件，形成图库网格。
+  - 点击 <kbd>◀ 目录图纸</kbd> 即自动扫描当前目录下的所有 `.dwg` 与 `.dxf` 文件，形成图库网格，当前图纸自动滚动定位。
 - **毫秒级内嵌缩略图提取**：
   - 直接从 DWG 二进制文件头读取内置预览位图（耗时 $< 1\text{ms}$，无需启动庞大 CAD 引擎）。
   - 内置 Windows Shell 缩略图后备，完美支持各版本 AutoCAD、浩辰CAD、中望CAD 及 `.dxf` 文件。
@@ -123,9 +164,36 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
   - 插件启动时会自动检测并无缝切换至对应驱动引擎，满足不同用户在轻量合规开源与极致本地画质之间的个性化需求！
 ### 📦 安装方式
 
+#### 方式一：空格键一键安装（推荐）
 1. 在 [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases) 页面下载 `QuickLook.Plugin.DwgsViewer.qlplugin`；
 2. 选中下载的 `.qlplugin` 文件，按下 <kbd>空格键</kbd>；
 3. 点击弹出窗口中的 **Install** 按钮，重启 QuickLook 即可生效。
+
+#### 方式二：手动安装
+将 `QuickLook.Plugin.DwgsViewer.qlplugin`（必要时重命名为 `.zip`）解压或复制全部内容到：
+```
+%APPDATA%\pooi.moe\QuickLook\QuickLook.Plugin\QuickLook.Plugin.DwgsViewer\
+```
+然后重启 QuickLook 即可生效。
+
+### 🔧 可选：启用高保真商业驱动
+
+插件开箱即用（内置纯开源引擎）。如需启用商业级渲染，只需把对应驱动 DLL 放入上述插件目录（或其 `Drivers\` 子文件夹）即可，**无需重新编译**：
+
+| 驱动 | 所需文件 | 效果 |
+|---|---|---|
+| WoutWare CadLib | `WW.Cad.dll`、`WW.dll`、`WW.GL.dll`、`WW.License.dll` | 纯实例多线程矢量渲染 |
+| CADSoftTools | `CADImport.dll` | CAD .NET 矢量渲染 |
+
+插件启动时会自动探测这些驱动，检测到后立即无缝升级渲染管线。
+
+### 🛠 从源码构建
+
+```bash
+cd QuickLook.Plugin.DwgsViewer
+dotnet build -c Release
+powershell -ExecutionPolicy Bypass -File pack.ps1
+```
 
 ---
 
