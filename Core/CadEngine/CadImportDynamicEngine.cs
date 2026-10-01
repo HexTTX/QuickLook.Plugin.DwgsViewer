@@ -11,7 +11,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// 【完全解耦设计】：无任何编译期硬引用，仅在用户自行放入 CADImport.dll 时动态加载。
     /// 包含内置线程安全锁（避免多线程 SGLines 内存死循环）及授权试用状态反射修补。
     /// </summary>
-    public class CadImportDynamicEngine : ICadEngine
+    internal class CadImportDynamicEngine : ICadEngine
     {
         public string Name => "CADSoftTools Vector Engine (Dynamic Driver)";
         public bool IsAvailable { get; private set; }

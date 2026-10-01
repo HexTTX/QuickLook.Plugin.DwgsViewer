@@ -11,7 +11,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// 【完全解耦设计】：不产生任何编译期硬依赖，源码中零商业二进制引用。
     /// 仅在用户本地目录存在 WW.Cad.dll 时动态加载执行；发布包和 GitHub 仓库 100% 干净合规。
     /// </summary>
-    public class CadLibDynamicEngine : ICadEngine
+    internal class CadLibDynamicEngine : ICadEngine
     {
         public string Name => "CadLib Vector Engine (Dynamic Driver)";
         public bool IsAvailable { get; private set; }

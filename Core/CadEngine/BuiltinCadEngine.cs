@@ -13,7 +13,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// 2. Windows Shell COM 管道深度交互（若系统装有 AutoCAD 或 DWG TrueView，直接调取其高清矢量流）
     /// 3. 支持平滑平移与高画质插值缩放
     /// </summary>
-    public class BuiltinCadEngine : ICadEngine
+    internal class BuiltinCadEngine : ICadEngine
     {
         public string Name => "Built-in Native Header & Shell Engine";
         public bool IsAvailable => true;

@@ -7,7 +7,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
     /// DWG / DXF 缩略图统一调度接口。
     /// 统一委托 CadEngineManager 多级引擎（优先动态驱动，自动降级至内置文件头与系统外壳）。
     /// </summary>
-    public static class DwgThumbnailExtractor
+    internal static class DwgThumbnailExtractor
     {
         public static Bitmap? RenderCadDrawing(string filePath, int width, int height, bool isDark)
         {

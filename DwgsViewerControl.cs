@@ -27,7 +27,7 @@ using Grid = System.Windows.Controls.Grid;
 
 namespace QuickLook.Plugin.DwgsViewer
 {
-    public class DwgsViewerControl : Grid, IDisposable
+    internal class DwgsViewerControl : Grid, IDisposable
     {
         [DllImport("gdi32.dll")]
         private static extern bool DeleteObject(IntPtr hObject);

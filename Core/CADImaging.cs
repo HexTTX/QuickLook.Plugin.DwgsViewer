@@ -10,7 +10,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
     /// 承载标准 WinForms Panel 双缓冲绘图，处理鼠标滚轮以光标为中心的精准平移缩放交互，
     /// 具备准星锁定算法（无漂移）、对称平滑缩放、三键平移拖拽与双击一键自适应居中。
     /// </summary>
-    public class CADImaging : IDisposable
+    internal class CADImaging : IDisposable
     {
         public event EventHandler<CADImagingEventArgs>? StatusUpdated;
         public event EventHandler<string>? AfterLoaded;
@@ -223,7 +223,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
         }
     }
 
-    public class CADImagingEventArgs : EventArgs
+    internal class CADImagingEventArgs : EventArgs
     {
         public enum EventType
         {

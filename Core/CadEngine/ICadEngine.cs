@@ -7,7 +7,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// CAD 统一渲染引擎抽象接口。
     /// 支持动态驱动加载与多引擎热插拔（纯开源引擎 / 外部驱动 / 系统外壳）。
     /// </summary>
-    public interface ICadEngine : IDisposable
+    internal interface ICadEngine : IDisposable
     {
         /// <summary>引擎显示名称</summary>
         string Name { get; }

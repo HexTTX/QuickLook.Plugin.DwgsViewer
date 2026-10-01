@@ -5,7 +5,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
-    public static class CadAutomationHelper
+    internal static class CadAutomationHelper
     {
         [DllImport("ole32.dll", ExactSpelling = true)]
         private static extern int CLSIDFromProgID([MarshalAs(UnmanagedType.LPWStr)] string lpszProgID, out Guid lpclsid);

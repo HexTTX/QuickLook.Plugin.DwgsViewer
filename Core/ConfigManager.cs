@@ -9,7 +9,7 @@ using System.Text;
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
     [DataContract]
-    public class PluginConfigData
+    internal class PluginConfigData
     {
         [DataMember]
         public List<string> Favorites { get; set; } = new List<string>();
@@ -27,7 +27,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
         public bool DarkTheme { get; set; } = true;
     }
 
-    public static class ConfigManager
+    internal static class ConfigManager
     {
         private static readonly object _lock = new object();
         private static PluginConfigData _data = new PluginConfigData();

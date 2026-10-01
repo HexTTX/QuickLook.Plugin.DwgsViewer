@@ -11,7 +11,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// 3. ACadSharp 原生开源矢量引擎（100% MIT 开源合规，图块展开、凸度圆角、中文排版）
     /// 4. Built-in 原生文件头与系统外壳引擎（0.3ms DWG 二进制预览位图提取 + Windows Shell 保底）
     /// </summary>
-    public class CadEngineManager : IDisposable
+    internal class CadEngineManager : IDisposable
     {
         private static readonly Lazy<CadEngineManager> _instance = new Lazy<CadEngineManager>(() => new CadEngineManager());
         public static CadEngineManager Instance => _instance.Value;

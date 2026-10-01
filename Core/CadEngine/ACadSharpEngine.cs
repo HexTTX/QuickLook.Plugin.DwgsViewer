@@ -20,7 +20,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// 4. 支持单行文本（TextEntity）与多行文本（MText）中英文字体矢量排版
     /// 5. 自动适配深色/浅色底色反色保护与毫秒级视口边界剔除
     /// </summary>
-    public class ACadSharpEngine : ICadEngine
+    internal class ACadSharpEngine : ICadEngine
     {
         public string Name => "ACadSharp Open-Source Vector Engine";
         public bool IsAvailable => true;
@@ -38,7 +38,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
         private bool _isLoaded;
         private bool _isDark = true;
 
-        public struct XYZPair
+        internal struct XYZPair
         {
             public XYZ P1;
             public XYZ P2;
