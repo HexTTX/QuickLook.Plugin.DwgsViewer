@@ -1,0 +1,97 @@
+# QuickLook.Plugin.DwgsViewer
+
+[![QuickLook Plugin](https://img.shields.io/badge/QuickLook-Plugin-blue)](https://github.com/QL-Win/QuickLook)
+[![Target](https://img.shields.io/badge/.NET-4.6.2-512BD4)](https://dotnet.microsoft.com/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+[English](#english) | [中文说明](#chinese)
+
+---
+
+<a name="english"></a>
+## English
+
+A powerful, high-performance [QuickLook](https://github.com/QL-Win/QuickLook) plugin for AutoCAD, GstarCAD, and ZWCAD drawings (`.dwg` and `.dxf`). 
+
+Pressing <kbd>Spacebar</kbd> on any `.dwg` or `.dxf` file automatically discovers all drawings in the current directory, presenting a responsive thumbnail gallery with instant CAD block insertion, ranking, and search!
+
+### ✨ Key Features
+
+- **Folder-Wide Drawing Gallery**:
+  - Automatically scans and lists all `.dwg` and `.dxf` drawings in the current folder.
+  - Initial selection auto-scrolls into view.
+- **Ultra-Fast Thumbnail Extraction**:
+  - Directly extracts embedded binary preview bitmaps from DWG headers in $< 1\text{ms}$.
+  - Seamless Windows Shell thumbnail fallback (`IShellItemImageFactory`) for `.dxf` and all CAD versions.
+- **Insert into Running CAD (AutoCAD / GstarCAD / ZWCAD)**:
+  - **Double-click** any drawing (or click `📥 插入到CAD`) to automatically insert it as a block into the currently active CAD document (`AutoCAD`, `浩辰CAD`, or `中望CAD`).
+  - Automatically activates the CAD window and prompts for the insertion point!
+- **Usage Frequency & Smart Ranking**:
+  - Keeps track of insertion counts in the plugin directory (`config.json`).
+  - Most frequently inserted drawings and folders automatically bubble to the top!
+- **Favorites / Bookmarking**:
+  - Click `⭐` to bookmark drawings; favorited drawings always stay pinned at the front!
+- **Responsive Layout & Custom Columns**:
+  - Custom column choices: 4, 5, 6, 8, or Auto-fit.
+  - Paged lazy loading: opens the first 24 items instantly and auto-loads on scroll.
+- **Zoom & Pan**:
+  - Mouse wheel zoom centered at cursor position (10% to 3000%).
+  - Left / Middle mouse drag to pan smoothly.
+  - Double-click to reset to 100% Fit.
+- **Fluent Search Box**:
+  - Real-time search by filename with clear `✕` button.
+- **Keyboard Shortcuts**:
+  - <kbd>A</kbd> / <kbd>D</kbd> or <kbd>←</kbd> / <kbd>→</kbd>: Previous / Next drawing in detail view.
+  - <kbd>I</kbd>: Insert current drawing into CAD.
+  - <kbd>S</kbd>: Toggle favorite.
+  - <kbd>B</kbd>: Toggle dark/light background.
+
+### 📦 Installation
+
+1. Download `QuickLook.Plugin.DwgsViewer.qlplugin` from [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases).
+2. Select the file in File Explorer and press <kbd>Spacebar</kbd>.
+3. Click **Install**, then restart QuickLook.
+
+---
+
+<a name="chinese"></a>
+## 中文说明
+
+为 Windows 效率神器 [QuickLook](https://github.com/QL-Win/QuickLook) 打造的 AutoCAD / 浩辰CAD / 中望CAD 图纸（`.dwg` 与 `.dxf`）全能预览与图库管理插件。
+
+在文件资源管理器中选中任意一张 `.dwg` 或 `.dxf` 图纸按下 <kbd>空格键</kbd>，即可自动检索当前目录中的全部图纸，以现代化缩略图画廊集中呈现，并支持一键插入至运行中的 CAD 软件！
+
+### ✨ 核心特性
+
+- **目录级自动图纸检索**：
+  - 空格触发任意一张图纸，自动扫描当前目录下的所有 `.dwg` 与 `.dxf` 文件，形成图库网格。
+- **毫秒级内嵌缩略图提取**：
+  - 直接从 DWG 二进制文件头读取内置预览位图（耗时 $< 1\text{ms}$，无需启动庞大 CAD 引擎）。
+  - 内置 Windows Shell 缩略图后备，完美支持各版本 AutoCAD、浩辰CAD、中望CAD 及 `.dxf` 文件。
+- **双击一键插入正在运行的 CAD**：
+  - 双击图纸（或在大图下点击 `📥 插入到CAD` 按钮 / 按 <kbd>I</kbd> 键），自动检测当前运行的 **AutoCAD、浩辰CAD（GstarCAD）或 中望CAD（ZWCAD）**。
+  - 将当前图纸作为图块插入活动图纸文档，自动激活 CAD 窗口并提示用户点选放置点！
+- **插入频次统计与智能排序**：
+  - 在插件配置中自动记录图纸与目录的插入历史。
+  - 插入次数越多的图纸，在画廊中**自动优先排在最前**，越用越聪明！
+- **图纸收藏夹（置顶功能）**：
+  - 点击卡片右上角 `⭐` 收藏图纸，收藏的图纸默认绝对置顶展示；顶部提供 `全部`、`⭐ 收藏`、`🔥 常用` 快速分类标签。
+- **自定义列数与自适应网格**：
+  - 顶部直接支持切换：`自动 / 4列 / 5列 / 6列 / 8列`，卡片等比例响应式伸缩。
+  - 首屏秒开 + 滚动分页懒加载（首批载入 24 张，滚动按需追加）。
+- **专业级交互支持**：
+  - 滚轮以鼠标为中心平滑缩放，左键/中键拖拽平移，双击一键 100% 居中还原。
+  - 按 <kbd>A</kbd> / <kbd>D</kbd> 左右切图，按 <kbd>B</kbd> 切换黑白底色，按鼠标侧键后退或双击返回网格。
+  - Fluent 胶囊搜索框实时模糊过滤。
+
+### 📦 安装方式
+
+1. 在 [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases) 页面下载 `QuickLook.Plugin.DwgsViewer.qlplugin`；
+2. 选中下载的 `.qlplugin` 文件，按下 <kbd>空格键</kbd>；
+3. 点击弹出窗口中的 **Install** 按钮，重启 QuickLook 即可生效。
+
+---
+
+## 📄 License
+
+MIT License
