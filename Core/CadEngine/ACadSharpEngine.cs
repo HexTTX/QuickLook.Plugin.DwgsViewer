@@ -455,6 +455,116 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     texts.Add(new RenderText { Location = loc, Text = mtxt.Value, Height = mtxt.Height, Color = color });
                     UpdateBounds(loc);
                 }
+                else if (ent is Solid solid)
+                {
+                    var c1 = transform * solid.FirstCorner;
+                    var c2 = transform * solid.SecondCorner;
+                    var c3 = transform * solid.ThirdCorner;
+                    var c4 = transform * solid.FourthCorner;
+                    AddSegment(c1, c2, color);
+                    AddSegment(c2, c4, color);
+                    AddSegment(c4, c3, color);
+                    AddSegment(c3, c1, color);
+                }
+                else if (ent is Leader ldr)
+                {
+                    for (int k = 0; k < ldr.Vertices.Count - 1; k++)
+                    {
+                        AddSegment(transform * ldr.Vertices[k], transform * ldr.Vertices[k + 1], color);
+                    }
+                }
+                else if (ent is Spline spline)
+                {
+                    var pts = (spline.FitPoints != null && spline.FitPoints.Count > 1) ? spline.FitPoints : spline.ControlPoints;
+                    if (pts != null && pts.Count > 1)
+                    {
+                        for (int k = 0; k < pts.Count - 1; k++)
+                        {
+                            AddSegment(transform * pts[k], transform * pts[k + 1], color);
+                        }
+                    }
+                }
+                else if (ent is Polyline2D p2d)
+                {
+                    var vList = new List<XYZ>();
+                    foreach (var v in p2d.Vertices) vList.Add(v.Location);
+                    for (int k = 0; k < vList.Count - 1; k++)
+                    {
+                        AddSegment(transform * vList[k], transform * vList[k + 1], color);
+                    }
+                    if (p2d.IsClosed && vList.Count > 2)
+                    {
+                        AddSegment(transform * vList[vList.Count - 1], transform * vList[0], color);
+                    }
+                }
+                else if (ent is Polyline3D p3d)
+                {
+                    var vList = new List<XYZ>();
+                    foreach (var v in p3d.Vertices) vList.Add(v.Location);
+                    for (int k = 0; k < vList.Count - 1; k++)
+                    {
+                        AddSegment(transform * vList[k], transform * vList[k + 1], color);
+                    }
+                    if (p3d.IsClosed && vList.Count > 2)
+                    {
+                        AddSegment(transform * vList[vList.Count - 1], transform * vList[0], color);
+                    }
+                }
+                else if (ent is Dimension dim && dim.Block != null)
+                {
+                    // AutoCAD 尺寸标注（标注线、延伸线、箭头、测量数字全部内嵌在匿名图块 *D 中）
+                    foreach (var bEnt in dim.Block.Entities)
+                    {
+                        if (bEnt is ACadSharp.Entities.Point && bEnt.Layer?.Name == "Defpoints")
+                            continue;
+                        ExtractEntity(bEnt, transform, color);
+                    }
+                }
+                else if (ent is Hatch hatch)
+                {
+                    // 提取图案填充的外轮廓边界线（墙体、剖面等）
+                    foreach (var path in hatch.Paths)
+                    {
+                        foreach (var edge in path.Edges)
+                        {
+                            if (edge is Hatch.BoundaryPath.Line hLine)
+                            {
+                                AddSegment(transform * new XYZ(hLine.Start.X, hLine.Start.Y, 0),
+                                           transform * new XYZ(hLine.End.X, hLine.End.Y, 0), color);
+                            }
+                            else if (edge is Hatch.BoundaryPath.Arc hArc)
+                            {
+                                int steps = 16;
+                                double start = hArc.StartAngle;
+                                double end = hArc.EndAngle;
+                                if (!hArc.CounterClockWise) { var tmp = start; start = end; end = tmp; }
+                                if (end < start) end += Math.PI * 2;
+                                double step = (end - start) / steps;
+                                XYZ prev = transform * new XYZ(hArc.Center.X + hArc.Radius * Math.Cos(start), hArc.Center.Y + hArc.Radius * Math.Sin(start), 0);
+                                for (int k = 1; k <= steps; k++)
+                                {
+                                    double ang = start + k * step;
+                                    XYZ curr = transform * new XYZ(hArc.Center.X + hArc.Radius * Math.Cos(ang), hArc.Center.Y + hArc.Radius * Math.Sin(ang), 0);
+                                    AddSegment(prev, curr, color);
+                                    prev = curr;
+                                }
+                            }
+                            else if (edge is Hatch.BoundaryPath.Polyline hPoly)
+                            {
+                                for (int k = 0; k < hPoly.Vertices.Count - 1; k++)
+                                {
+                                    AddSegment(transform * new XYZ(hPoly.Vertices[k].X, hPoly.Vertices[k].Y, 0),
+                                               transform * new XYZ(hPoly.Vertices[k + 1].X, hPoly.Vertices[k + 1].Y, 0), color);
+                                }
+                                if (hPoly.IsClosed && hPoly.Vertices.Count > 2)
+                                {
+                                    AddSegment(transform * new XYZ(hPoly.Vertices[hPoly.Vertices.Count - 1].X, hPoly.Vertices[hPoly.Vertices.Count - 1].Y, 0),
+                                               transform * new XYZ(hPoly.Vertices[0].X, hPoly.Vertices[0].Y, 0), color);
+                                }
+                            }
+                        }
+                    }
+                }
                 else if (ent is Insert ins && ins.Block != null)
                 {
                     var t = Matrix4.CreateTranslation((double)ins.InsertPoint.X, (double)ins.InsertPoint.Y, 0);
