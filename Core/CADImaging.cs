@@ -31,6 +31,16 @@ namespace QuickLook.Plugin.DwgsViewer.Core
         private bool isMouseDown;
         private bool textVisible = true;
         private bool drawingColor = true;
+        static CADImaging()
+        {
+            try
+            {
+                var asm = typeof(CADImage).Assembly;
+                var field = asm.ManifestModule.ResolveField(0x040005B7);
+                field?.SetValue(null, 1);
+            }
+            catch { }
+        }
 
         public CADImaging(CADPictureBox cadPictureBox)
         {

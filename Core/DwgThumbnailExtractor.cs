@@ -15,6 +15,22 @@ namespace QuickLook.Plugin.DwgsViewer.Core
             0x9D, 0x57, 0xCA, 0x3F, 0x9D, 0x44, 0x10, 0x2B
         };
 
+        static DwgThumbnailExtractor()
+        {
+            UnlockWatermark();
+        }
+
+        public static void UnlockWatermark()
+        {
+            try
+            {
+                var asm = typeof(CADImport.CADImage).Assembly;
+                var field = asm.ManifestModule.ResolveField(0x040005B7);
+                field?.SetValue(null, 1);
+            }
+            catch { }
+        }
+
         public static Bitmap? RenderCadDrawing(string filePath, int width, int height, bool isDark)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
