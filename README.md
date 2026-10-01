@@ -50,14 +50,20 @@ Pressing <kbd>Spacebar</kbd> on any `.dwg` or `.dxf` file automatically discover
 ### 🧩 Pluggable CAD Engine Architecture (`ICadEngine`)
 
 This plugin features a zero-dependency, pluggable rendering engine architecture:
-- **Default Engines (100% Open-Source & Legal)**:
-  - **ACadSharp Native GDI+ Vector Engine**: Full DWG/DXF entity extraction, recursive block unfolding, bulge arc solving, and Microsoft YaHei vector text layout.
-  - **Built-in Native Header & Shell Extractor**: $< 0.3\text{ms}$ DWG binary header preview extraction with Windows Shell integration.
-- **External Dynamic Driver Support**:
-  - The plugin automatically probes for optional high-fidelity drivers in the plugin directory or `Drivers/` subfolder:
-    1. **WoutWare CadLib Driver** (`WW.Cad.dll`): Pure instance multi-threaded vector engine.
-    2. **CADSoftTools Driver** (`CADImport.dll`): Auto-patched vector engine with concurrency locking.
-  - If present, dynamically activates standalone commercial-grade vector rendering without compiling.
+- **Default Open-Source Engine (100% Legal & Free)**:
+  - Implements vector extraction and mathematical projection for the vast majority of common CAD entities:
+    - Standard lines, arcs, circles, polylines with curved bulges (`bulge = tan(θ/4)`).
+    - High-precision 3D vector cross-product elliptical arcs ($P(t) = \text{Center} + \cos(t) \cdot \mathbf{V}_{\text{major}} + \sin(t) \cdot (\mathbf{N} \times \mathbf{V}_{\text{major}}) \cdot \text{Ratio}$).
+    - Multi-level recursive block references (`Insert` / `Block`) with full translation, rotation, and scaling matrices.
+    - Dimension styles (linear, aligned, angular) with extension lines, solid arrowheads, and centered text.
+    - Solids, Leaders, Splines, Polyline2D/3D, Hatch boundaries, and YaHei vector text layout.
+  - Fast binary DWG header extraction ($< 0.3\text{ms}$) with Windows Shell integration.
+- **Commercial Driver Hot-Plugging (For 100% Parity)**:
+  - While our open-source engine covers most real-world engineering and furniture drawings, some hyper-complex drawings (e.g. proprietary 3D ACIS bodies, custom proxy objects) may not display completely.
+  - **We have deliberately pre-built pluggable commercial driver interfaces (`ICadEngine`)**:
+    1. **WoutWare CadLib Driver**: Place `WW.Cad.dll` and `WW.dll` in the plugin root or `Drivers/` folder for pure multi-threaded vector rendering.
+    2. **CADSoftTools Driver**: Place `CADImport.dll` in the plugin root or `Drivers/` folder for auto-patched enterprise rendering.
+  - If present, the plugin automatically upgrades to commercial-grade rendering on the fly with zero recompilation needed!
 ### 📦 Installation
 
 1. Download `QuickLook.Plugin.DwgsViewer.qlplugin` from [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases).
@@ -100,14 +106,21 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
 ### 🧩 模块化可插拔渲染架构 (`ICadEngine`)
 
 插件采用纯净开源、接口解耦的可插拔多引擎架构：
-- **默认内置引擎（100% 纯净开源合规）**：
-  - **ACadSharp 原生 GDI+ 矢量引擎**：纯原生解析 DWG/DXF 几何线条、递归展开图块（Insert/Block）、高精度求解多段线凸度圆角（Bulge）、支持微软雅黑矢量文字排版。
-  - **内置文件头与系统外壳提取器**：0.3ms 极速提取 DWG 文件头官方预览位图，无缝集成 Windows Shell / AutoCAD / DWG TrueView 缩略图服务。
-- **外部动态驱动热插拔（零编译、零版权纠纷）**：
-  - 插件启动时自动探测插件目录或 `Drivers/` 文件夹中是否存在第三方驱动：
-    1. **WoutWare CadLib 驱动**（放入 `WW.Cad.dll` 及 `WW.dll`）：激活纯实例无锁极速矢量渲染。
-    2. **CADSoftTools 驱动**（放入 `CADImport.dll`）：自动解除试用水印并启动多线程防崩锁。
-  - 满足不同用户在极简合规分发与极致本地画质之间的个性化需求。
+- **默认内置开源引擎（100% 纯净合规、自由免费）**：
+  - 实现了绝大多数常见 CAD 图元的原生高精度几何与向量叉积投影：
+    - 直线、圆弧、圆、多段线凸度圆角（`bulge = tan(θ/4)`，平滑拟合布料褶皱与曲面）。
+    - 3D 向量叉积椭圆弧（$P(t) = \text{Center} + \cos(t) \cdot \mathbf{V}_{\text{major}} + \sin(t) \cdot (\mathbf{N} \times \mathbf{V}_{\text{major}}) \cdot \text{Ratio}$，彻底根除发散圆环）。
+    - 多层嵌套图块引用（`Insert` / `Block`）的矩阵复合展开（平移、旋转、缩放）。
+    - 尺寸标注（线性、对齐、角度标注，自动递归解包 `*D` 匿名图块、尺寸线、实心箭头与标准居中测量值）。
+    - 实心体（`Solid` 箭头与填充）、引线（`Leader`）、样条曲线（`Spline`）、二维/三维多段线及图案填充边界。
+    - 中英文矢量文字排版（支持对齐锚点映射与微软雅黑字体呈现）。
+    - 0.3ms 极速 DWG 文件头官方预览提取与 Windows Shell 降级保底。
+- **商业驱动预留接口（追求 100% 极致商业兼容）**：
+  - 开源引擎虽已覆盖绝大多数常用工程设计与家具图纸，但对于极少部分极其特殊复杂的图纸（如三维 ACIS 实体、自定义代理实体等），若出现显示不全或要求 100% 商业级高保真还原：
+  - **我们已专门预留了即插即用的商业驱动接口（`ICadEngine`）**：
+    1. **WoutWare CadLib 驱动**：将 `WW.Cad.dll` 与 `WW.dll` 放置于插件目录或 `Drivers/` 文件夹，自动激活纯实例无锁极速渲染；
+    2. **CADSoftTools 驱动**：将 `CADImport.dll` 放置于插件目录或 `Drivers/` 文件夹，自动解除水印并启动防崩保护。
+  - 插件启动时会自动检测并无缝切换至商业引擎，满足不同用户在轻量合规开源与极致本地画质之间的个性化需求！
 ### 📦 安装方式
 
 1. 在 [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases) 页面下载 `QuickLook.Plugin.DwgsViewer.qlplugin`；
