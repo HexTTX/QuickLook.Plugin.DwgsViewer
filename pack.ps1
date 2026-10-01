@@ -20,7 +20,7 @@ if (Test-Path $qlpluginPath) { Remove-Item $qlpluginPath -Force }
 
 Write-Host "Packaging $pluginName.qlplugin..." -ForegroundColor Cyan
 
-$filesToPack = Get-ChildItem -Path $outDir -Include @("*.dll", "QuickLook.Plugin.Metadata.config", "*.config") -Recurse | Where-Object { $_.Name -notmatch "QuickLook\.Common\.dll" }
+$filesToPack = Get-ChildItem -Path $outDir -Include @("QuickLook.Plugin.DwgsViewer.dll", "QuickLook.Plugin.Metadata.config") -Recurse
 
 Compress-Archive -Path $filesToPack.FullName -DestinationPath $zipPath -Force
 Move-Item -Path $zipPath -Destination $qlpluginPath -Force

@@ -10,3 +10,4 @@ obj/
 config.json
 References/*.dll
 Drivers/
+FodyWeavers.xsd
