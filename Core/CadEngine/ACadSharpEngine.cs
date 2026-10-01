@@ -431,9 +431,9 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 }
                 else if (ent is Ellipse ellipse)
                 {
-                    double a = ellipse.MajorAxis;
-                    double b = ellipse.MinorAxis;
-                    double rot = Math.Atan2(ellipse.MajorAxisEndPoint.Y, ellipse.MajorAxisEndPoint.X);
+                    XYZ vMajor = ellipse.MajorAxisEndPoint;
+                    XYZ normal = ellipse.Normal;
+                    XYZ vMinor = XYZ.Cross(normal, vMajor) * ellipse.RadiusRatio;
 
                     double start = ellipse.IsFullEllipse ? 0 : ellipse.StartParameter;
                     double end = ellipse.IsFullEllipse ? Math.PI * 2 : ellipse.EndParameter;
@@ -442,20 +442,14 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     int steps = Math.Max(8, (int)Math.Ceiling(36 * (end - start) / (Math.PI * 2)));
                     double step = (end - start) / steps;
 
-                    double l0_x = a * Math.Cos(start);
-                    double l0_y = b * Math.Sin(start);
-                    double g0_x = ellipse.Center.X + (l0_x * Math.Cos(rot) - l0_y * Math.Sin(rot));
-                    double g0_y = ellipse.Center.Y + (l0_x * Math.Sin(rot) + l0_y * Math.Cos(rot));
-                    XYZ prev = transform * new XYZ(g0_x, g0_y, 0);
+                    XYZ p0 = ellipse.Center + vMajor * Math.Cos(start) + vMinor * Math.Sin(start);
+                    XYZ prev = transform * p0;
 
                     for (int s = 1; s <= steps; s++)
                     {
                         double ang = start + s * step;
-                        double lx = a * Math.Cos(ang);
-                        double ly = b * Math.Sin(ang);
-                        double gx = ellipse.Center.X + (lx * Math.Cos(rot) - ly * Math.Sin(rot));
-                        double gy = ellipse.Center.Y + (lx * Math.Sin(rot) + ly * Math.Cos(rot));
-                        XYZ curr = transform * new XYZ(gx, gy, 0);
+                        XYZ p = ellipse.Center + vMajor * Math.Cos(ang) + vMinor * Math.Sin(ang);
+                        XYZ curr = transform * p;
                         AddSegment(prev, curr, color);
                         prev = curr;
                     }
