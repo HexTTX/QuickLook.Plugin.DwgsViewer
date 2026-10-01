@@ -50,13 +50,14 @@ Pressing <kbd>Spacebar</kbd> on any `.dwg` or `.dxf` file automatically discover
 ### 🧩 Pluggable CAD Engine Architecture (`ICadEngine`)
 
 This plugin features a zero-dependency, pluggable rendering engine architecture:
-- **Default Engine (100% Open-Source & Legal)**:
-  - Ultra-fast native binary DWG header extraction ($< 0.3\text{ms}$).
-  - Windows Shell thumbnail integration (`IShellItemImageFactory` / AutoCAD / DWG TrueView COM).
-  - Zero commercial dependencies, zero copyright infringement risk.
-- **Dynamic Driver Support**:
-  - The plugin automatically checks for external high-fidelity vector rendering drivers (e.g. `WW.Cad.dll`) placed in the plugin directory or `Drivers/` subfolder.
-  - If present, dynamically activates high-precision standalone vector rendering with zero watermarks.
+- **Default Engines (100% Open-Source & Legal)**:
+  - **ACadSharp Native GDI+ Vector Engine**: Full DWG/DXF entity extraction, recursive block unfolding, bulge arc solving, and Microsoft YaHei vector text layout.
+  - **Built-in Native Header & Shell Extractor**: $< 0.3\text{ms}$ DWG binary header preview extraction with Windows Shell integration.
+- **External Dynamic Driver Support**:
+  - The plugin automatically probes for optional high-fidelity drivers in the plugin directory or `Drivers/` subfolder:
+    1. **WoutWare CadLib Driver** (`WW.Cad.dll`): Pure instance multi-threaded vector engine.
+    2. **CADSoftTools Driver** (`CADImport.dll`): Auto-patched vector engine with concurrency locking.
+  - If present, dynamically activates standalone commercial-grade vector rendering without compiling.
 ### 📦 Installation
 
 1. Download `QuickLook.Plugin.DwgsViewer.qlplugin` from [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases).
@@ -99,13 +100,14 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
 ### 🧩 模块化可插拔渲染架构 (`ICadEngine`)
 
 插件采用纯净开源、接口解耦的可插拔多引擎架构：
-- **默认内置引擎（100% 纯净合规）**：
-  - 0.3ms 原生 DWG 二进制文件头直接提取，零依赖秒开。
-  - 深度集成 Windows Shell 缩略图服务（支持自动调用系统已安装的 AutoCAD / DWG TrueView 组件）。
-  - 发布包内不含任何商业私有或未授权库，完全符合开源规范与 GitHub 发布合规。
-- **动态驱动扩展**：
-  - 插件提供 `ICadEngine` 统一接口，启动时自动探测插件目录或 `Drivers/` 文件夹中是否存在第三方独立矢量渲染驱动（如 `WW.Cad.dll`）。
-  - 若检测到外部驱动，通过动态反射即时激活高精度无极矢量缩放渲染引擎，无需重新编译。
+- **默认内置引擎（100% 纯净开源合规）**：
+  - **ACadSharp 原生 GDI+ 矢量引擎**：纯原生解析 DWG/DXF 几何线条、递归展开图块（Insert/Block）、高精度求解多段线凸度圆角（Bulge）、支持微软雅黑矢量文字排版。
+  - **内置文件头与系统外壳提取器**：0.3ms 极速提取 DWG 文件头官方预览位图，无缝集成 Windows Shell / AutoCAD / DWG TrueView 缩略图服务。
+- **外部动态驱动热插拔（零编译、零版权纠纷）**：
+  - 插件启动时自动探测插件目录或 `Drivers/` 文件夹中是否存在第三方驱动：
+    1. **WoutWare CadLib 驱动**（放入 `WW.Cad.dll` 及 `WW.dll`）：激活纯实例无锁极速矢量渲染。
+    2. **CADSoftTools 驱动**（放入 `CADImport.dll`）：自动解除试用水印并启动多线程防崩锁。
+  - 满足不同用户在极简合规分发与极致本地画质之间的个性化需求。
 ### 📦 安装方式
 
 1. 在 [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases) 页面下载 `QuickLook.Plugin.DwgsViewer.qlplugin`；
