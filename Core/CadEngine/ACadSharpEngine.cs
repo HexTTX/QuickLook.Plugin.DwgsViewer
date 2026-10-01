@@ -51,6 +51,8 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
             public string Text;
             public double Height;
             public Color Color;
+            public StringAlignment Align;
+            public StringAlignment LineAlign;
         }
 
         public Bitmap? RenderThumbnail(string filePath, int width, int height, bool isDark)
@@ -113,8 +115,9 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                         Color textColor = AdjustColorForBackground(txt.Color, isDark);
                         using (var font = new Font("Microsoft YaHei", pxHeight, GraphicsUnit.Pixel))
                         using (var brush = new SolidBrush(textColor))
+                        using (var format = new StringFormat { Alignment = txt.Align, LineAlignment = txt.LineAlign })
                         {
-                            g.DrawString(txt.Text, font, brush, sx, sy - pxHeight);
+                            g.DrawString(txt.Text, font, brush, sx, sy, format);
                         }
                     }
                 }
@@ -217,7 +220,10 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     Font font = GetCachedFont((int)Math.Round(pxHeight));
                     Brush brush = GetCachedBrush(textColor);
 
-                    g.DrawString(txt.Text, font, brush, sx, sy - pxHeight);
+                    using (var format = new StringFormat { Alignment = txt.Align, LineAlignment = txt.LineAlign })
+                    {
+                        g.DrawString(txt.Text, font, brush, sx, sy, format);
+                    }
                 }
             }
             catch
@@ -445,14 +451,69 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 }
                 else if (ent is TextEntity txt && !string.IsNullOrEmpty(txt.Value))
                 {
-                    var loc = transform * txt.InsertPoint;
-                    texts.Add(new RenderText { Location = loc, Text = txt.Value, Height = txt.Height, Color = color });
+                    StringAlignment align = StringAlignment.Near;
+                    if (txt.HorizontalAlignment == TextHorizontalAlignment.Center || txt.HorizontalAlignment == TextHorizontalAlignment.Middle)
+                        align = StringAlignment.Center;
+                    else if (txt.HorizontalAlignment == TextHorizontalAlignment.Right)
+                        align = StringAlignment.Far;
+
+                    StringAlignment lineAlign = StringAlignment.Far;
+                    if (txt.VerticalAlignment == TextVerticalAlignmentType.Middle)
+                        lineAlign = StringAlignment.Center;
+                    else if (txt.VerticalAlignment == TextVerticalAlignmentType.Top)
+                        lineAlign = StringAlignment.Near;
+
+                    var pt = (txt.HorizontalAlignment != TextHorizontalAlignment.Left || txt.VerticalAlignment != TextVerticalAlignmentType.Baseline)
+                        ? (txt.AlignmentPoint.X != 0 || txt.AlignmentPoint.Y != 0 ? txt.AlignmentPoint : txt.InsertPoint)
+                        : txt.InsertPoint;
+
+                    var loc = transform * pt;
+                    texts.Add(new RenderText {
+                        Location = loc,
+                        Text = txt.Value,
+                        Height = txt.Height,
+                        Color = color,
+                        Align = align,
+                        LineAlign = lineAlign
+                    });
                     UpdateBounds(loc);
                 }
                 else if (ent is MText mtxt && !string.IsNullOrEmpty(mtxt.Value))
                 {
+                    StringAlignment align = StringAlignment.Near;
+                    StringAlignment lineAlign = StringAlignment.Near;
+
+                    switch (mtxt.AttachmentPoint)
+                    {
+                        case AttachmentPointType.TopLeft:
+                            align = StringAlignment.Near; lineAlign = StringAlignment.Near; break;
+                        case AttachmentPointType.TopCenter:
+                            align = StringAlignment.Center; lineAlign = StringAlignment.Near; break;
+                        case AttachmentPointType.TopRight:
+                            align = StringAlignment.Far; lineAlign = StringAlignment.Near; break;
+                        case AttachmentPointType.MiddleLeft:
+                            align = StringAlignment.Near; lineAlign = StringAlignment.Center; break;
+                        case AttachmentPointType.MiddleCenter:
+                            align = StringAlignment.Center; lineAlign = StringAlignment.Center; break;
+                        case AttachmentPointType.MiddleRight:
+                            align = StringAlignment.Far; lineAlign = StringAlignment.Center; break;
+                        case AttachmentPointType.BottomLeft:
+                            align = StringAlignment.Near; lineAlign = StringAlignment.Far; break;
+                        case AttachmentPointType.BottomCenter:
+                            align = StringAlignment.Center; lineAlign = StringAlignment.Far; break;
+                        case AttachmentPointType.BottomRight:
+                            align = StringAlignment.Far; lineAlign = StringAlignment.Far; break;
+                    }
+
                     var loc = transform * mtxt.InsertPoint;
-                    texts.Add(new RenderText { Location = loc, Text = mtxt.Value, Height = mtxt.Height, Color = color });
+                    texts.Add(new RenderText {
+                        Location = loc,
+                        Text = mtxt.Value,
+                        Height = mtxt.Height,
+                        Color = color,
+                        Align = align,
+                        LineAlign = lineAlign
+                    });
                     UpdateBounds(loc);
                 }
                 else if (ent is Solid solid)
