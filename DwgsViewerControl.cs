@@ -15,7 +15,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using CADImport.FaceModule;
 using QuickLook.Common.Plugin;
 using QuickLook.Plugin.DwgsViewer.Core;
 using Brush = System.Windows.Media.Brush;
@@ -95,7 +94,7 @@ namespace QuickLook.Plugin.DwgsViewer
 
         // Detail View Controls (原生矢量无极缩放渲染)
         private WindowsFormsHost _cadHost = null!;
-        private CADPictureBox _cadPictBox = null!;
+        private System.Windows.Forms.Panel _cadPanel = null!;
         private CADImaging _cadImaging = null!;
         private TextBlock _txtDetailFileName = null!;
         private Border _detailTopBarBorder = null!;
@@ -542,14 +541,10 @@ namespace QuickLook.Plugin.DwgsViewer
             Grid.SetRow(_detailTopBarBorder, 0);
             _detailView.Children.Add(_detailTopBarBorder);
 
-            // Row 1: Native Vector CAD View via CADPictureBox (No Airspace conflict!)
-            _cadPictBox = new CADPictureBox();
-            _cadImaging = new CADImaging(_cadPictBox);
-            _cadPictBox.Dock = System.Windows.Forms.DockStyle.Fill;
-            _cadPictBox.MouseDoubleClick += (s, e) =>
-            {
-                _cadImaging.ResetScaling();
-            };
+            // Row 1: Native Vector CAD View via CadLib (WW.Cad) + Panel
+            _cadPanel = new System.Windows.Forms.Panel();
+            _cadPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            _cadImaging = new CADImaging(_cadPanel);
 
             _cadImaging.StatusUpdated += (s, e) =>
             {
@@ -562,7 +557,7 @@ namespace QuickLook.Plugin.DwgsViewer
 
             _cadHost = new WindowsFormsHost
             {
-                Child = _cadPictBox
+                Child = _cadPanel
             };
             Grid.SetRow(_cadHost, 1);
             _detailView.Children.Add(_cadHost);
@@ -1258,31 +1253,36 @@ namespace QuickLook.Plugin.DwgsViewer
                     if (filePath == null) break;
                     if (_thumbnailCache.ContainsKey(filePath)) continue;
 
-                    bool isDark = _isDarkBackground;
                     try
                     {
-                        using (var bmp = DwgThumbnailExtractor.RenderCadDrawing(filePath, thumbSize, (int)(thumbSize * 0.75), isDark))
+                        // 优先使用 CadLib 矢量引擎渲染真实缩略图（纯实例对象，无静态全局，天然线程安全）
+                        // 对于文件头无内嵌预览的 DWG（如 WBLOCK 导出的图块），这是唯一能获取真实图面的方式
+                        Bitmap? bmp = DwgThumbnailExtractor.RenderCadDrawing(filePath, thumbSize, (int)(thumbSize * 0.667), _isDarkBackground);
+
+                        // 矢量渲染失败时降级：从 DWG 文件头内嵌位图或 Windows Shell 提取
+                        if (bmp == null)
+                            bmp = DwgThumbnailExtractor.ExtractThumbnail(filePath, thumbSize);
+
+                        if (bmp != null)
                         {
-                            if (bmp != null)
+                            using (bmp)
+                            using (var ms = new MemoryStream())
                             {
-                                using (var ms = new MemoryStream())
+                                bmp.Save(ms, ImageFormat.Png);
+                                ms.Position = 0;
+                                var bi = new BitmapImage();
+                                bi.BeginInit();
+                                bi.StreamSource = ms;
+                                bi.CacheOption = BitmapCacheOption.OnLoad;
+                                bi.EndInit();
+                                bi.Freeze();
+
+                                _thumbnailCache[filePath] = bi;
+
+                                Dispatcher.BeginInvoke(new Action(() =>
                                 {
-                                    bmp.Save(ms, ImageFormat.Png);
-                                    ms.Position = 0;
-                                    var bi = new BitmapImage();
-                                    bi.BeginInit();
-                                    bi.StreamSource = ms;
-                                    bi.CacheOption = BitmapCacheOption.OnLoad;
-                                    bi.EndInit();
-                                    bi.Freeze();
-
-                                    _thumbnailCache[filePath] = bi;
-
-                                    Dispatcher.BeginInvoke(new Action(() =>
-                                    {
-                                        UpdateCardImage(filePath, bi);
-                                    }));
-                                }
+                                    UpdateCardImage(filePath, bi);
+                                }));
                             }
                         }
                     }
@@ -1382,12 +1382,14 @@ namespace QuickLook.Plugin.DwgsViewer
 
                 // 由 CADImaging 驱动 CADPictureBox 进行纯原生 GDI+ 矢量硬件双缓冲渲染！
                 // 彻底解决放大模糊问题，任意放大比例（100%、306%、1000%）文字与线条百分之百矢量锐利！
+                // 由 CADImaging 驱动 CADPictureBox 进行纯原生 GDI+ 矢量硬件双缓冲渲染！
                 _cadImaging.SetBackColor(_isDarkBackground);
                 _cadImaging.LoadFile(filePath);
             }
             catch (Exception ex)
             {
-                ShowToast($"预览出错: {ex.Message}");
+                ShowToast($"矢量解析过载: {ex.Message}");
+                try { GC.Collect(1, GCCollectionMode.Optimized); } catch { }
             }
         }
 
@@ -1655,8 +1657,7 @@ namespace QuickLook.Plugin.DwgsViewer
             }
             _thumbnailCache.Clear();
 
-            _cadImaging?.Dispose();
-            _cadPictBox?.Dispose();
+            _cadPanel?.Dispose();
             _cadHost?.Dispose();
         }
     }

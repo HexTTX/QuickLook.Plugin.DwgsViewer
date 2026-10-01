@@ -1,422 +1,256 @@
 using System;
-using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
 using System.Windows.Forms;
-using CADImport;
-using CADImport.FaceModule;
-using CADImport.RasterImage;
-using ScrollOrientation = CADImport.FaceModule.ScrollOrientation;
+using WW.Cad.Drawing;
+using WW.Cad.Drawing.GDI;
+using WW.Cad.IO;
+using WW.Cad.Model;
+using WW.Drawing;
+using WW.Math;
+using Color = System.Drawing.Color;
 
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
+    /// <summary>
+    /// 基于 CadLib (WW.Cad) 的 CAD 纯矢量渲染引擎。
+    /// 纯实例架构，无静态全局状态，天然线程安全，无水印。
+    /// 完全替代旧版 CADImport 引擎。
+    /// </summary>
     public class CADImaging : IDisposable
     {
         public event EventHandler<CADImagingEventArgs>? StatusUpdated;
-        public event EventHandler<CADImagingEventArgs>? CursorUpdated;
-        public event EventHandler<CADImagingEventArgs>? RealPointUpdated;
-        public event EventHandler<CADImagingEventArgs>? OffsetPointUpdated;
         public event EventHandler<string>? AfterLoaded;
 
-        private CADPictureBox? cadPictBox;
-        private CADImage? cadImage;
-        private DPoint originalPoint = new DPoint(default, default, default);
-        private readonly ClipRect? clipRectangle;
-        private PointF positionPrev;
-        private PointF position;
-        private float imageScalePrev = 1f;
-        private float imageScale = 1f;
-        private SizeF visibleArea;
-        private int currentXClickPosition;
-        private int currentYClickPosition;
-        private bool isMouseDown;
-        private bool textVisible = true;
-        private bool drawingColor = true;
-        static CADImaging()
+        private Panel? _panel;
+        private DxfModel? _model;
+        private GDIGraphics3D? _cadGraphics;
+        private GraphicsConfig? _graphicsConfig;
+
+        private float _zoom = 1f;
+        private float _panX = 0f;
+        private float _panY = 0f;
+        private Point _lastMouse;
+        private bool _isMouseDown;
+
+        public CADImaging(Panel panel)
         {
-            try
+            _panel = panel;
+            _panel.BackColor = Color.FromArgb(24, 24, 26);
+            _panel.Cursor = Cursors.Default;
+
+            // 开启双缓冲防闪烁
+            typeof(Panel).InvokeMember("DoubleBuffered",
+                System.Reflection.BindingFlags.SetProperty | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                null, _panel, new object[] { true });
+
+            _panel.Paint += OnPaint;
+            _panel.MouseWheel += OnMouseWheel;
+            _panel.MouseDown += OnMouseDown;
+            _panel.MouseMove += OnMouseMove;
+            _panel.MouseUp += OnMouseUp;
+            _panel.MouseDoubleClick += (_, _) => { if (IsLoaded) ResetScaling(); };
+            _panel.VisibleChanged += (_, _) =>
             {
-                var asm = typeof(CADImage).Assembly;
-                var field = asm.ManifestModule.ResolveField(0x040005B7);
-                field?.SetValue(null, 1);
-            }
-            catch { }
-        }
-
-        public CADImaging(CADPictureBox cadPictureBox)
-        {
-            cadPictBox = cadPictureBox;
-            cadPictBox.BackColor = Color.Black;
-            cadPictBox.BorderStyle = BorderStyle.None;
-            cadPictBox.Cursor = Cursors.Default;
-            cadPictBox.DoubleBuffering = true;
-            cadPictBox.Ortho = false;
-            cadPictBox.ScrollBars = ScrollBarsShow.Automatic;
-            cadPictBox.Size = new Size(1000, 1000);
-            cadPictBox.TabStop = false;
-            cadPictBox.Dock = DockStyle.Fill;
-            clipRectangle = new ClipRect(cadPictureBox)
-            {
-                MultySelect = false,
-            };
-
-            cadPictBox.Paint += OnCADPictBoxPaint;
-            cadPictBox.MouseWheel += OnCADPictBoxMouseWheel;
-            cadPictBox.ScrollEvent += OnCADPictBoxScroll;
-            cadPictBox.MouseDown += OnCADPictBoxMouseDown;
-            cadPictBox.MouseMove += OnCADPictBoxMouseMove;
-            cadPictBox.MouseUp += OnCADPictBoxMouseUp;
-            cadPictBox.MouseDoubleClick += OnCADPictBoxMouseDoubleClick;
-            cadPictBox.VisibleChanged += (_, _) =>
-            {
-                if (cadImage == null || cadPictBox == null)
-                    return;
-
-                if (!cadPictBox.Visible)
-                    return;
-
+                if (_model == null || _panel == null || !_panel.Visible) return;
                 ResetScaling();
-                StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
             };
         }
 
         public void Dispose()
         {
-            cadPictBox = null;
-            cadImage?.Dispose();
-            cadImage = null;
+            _cadGraphics = null;
+            _graphicsConfig = null;
+            _model = null;
+            _panel = null;
         }
 
-        public CADImage? CADImage => cadImage;
-        public bool IsLoaded => cadImage != null;
+        public bool IsLoaded => _model != null;
         public bool IsDark { get; set; } = true;
-        public bool IsNormalDrawMode => cadImage != null && cadImage.DrawMode == CADDrawMode.Normal;
-        public bool IsBlackBackColor => cadPictBox != null && cadPictBox.BackColor == Color.Black;
+        public string RealScale => $"{_zoom * 100:F0}";
 
-        private float LeftImagePosition
+        // ─── 鼠标手势交互 ───
+
+        private void OnMouseWheel(object? sender, MouseEventArgs e)
         {
-            get => position.X;
-            set => position.X = value;
-        }
+            if (_panel == null || _model == null) return;
 
-        private float TopImagePosition
-        {
-            get => position.Y;
-            set => position.Y = value;
-        }
+            float factor = e.Delta > 0 ? 1.25f : 0.8f;
+            _zoom *= factor;
+            if (_zoom < 0.02f) _zoom = 0.02f;
+            if (_zoom > 50f) _zoom = 50f;
 
-        private RectangleF ImageRectangleF => new RectangleF(LeftImagePosition, TopImagePosition, visibleArea.Width * imageScale, visibleArea.Height * imageScale);
+            // 以鼠标指针当前所在位置为中心进行平移补偿
+            _panX = e.X - (e.X - _panX) * factor;
+            _panY = e.Y - (e.Y - _panY) * factor;
 
-        public string RealScale
-        {
-            get
-            {
-                if (cadImage != null && cadImage.AbsWidth > 0)
-                    return string.Format("{0,2:F}", visibleArea.Width * imageScale / cadImage.AbsWidth * cadImage.MMToPixelX * 100);
-                else
-                    return string.Format("{0}", imageScale);
-            }
-        }
-
-        private void OnCADPictBoxMouseWheel(object sender, MouseEventArgs e)
-        {
-            if (e.Delta < 0)
-                Zoom(0.75f);
-            else
-                Zoom(1.33f);
-
-            Shift();
-            SetPictureBoxPosition(position);
-        }
-
-        private void OnCADPictBoxScroll(object sender, ScrollEventArgsExt e)
-        {
-            if (e.NewValue == 0 && e.OldValue == 0)
-                e.NewValue = -5;
-
-            if (e.ScrollOrientation == ScrollOrientation.VerticalScroll)
-                TopImagePosition -= e.NewValue - e.OldValue;
-
-            if (e.ScrollOrientation == ScrollOrientation.HorizontalScroll)
-                LeftImagePosition -= e.NewValue - e.OldValue;
-
-            cadPictBox?.Invalidate();
-        }
-
-        private void OnCADPictBoxMouseDown(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Right || e.Button == MouseButtons.Middle || e.Button == MouseButtons.Left)
-            {
-                currentXClickPosition = e.X;
-                currentYClickPosition = e.Y;
-                isMouseDown = true;
-                if (cadPictBox != null) cadPictBox.Cursor = Cursors.SizeAll;
-            }
-        }
-
-        private void OnCADPictBoxMouseUp(object sender, MouseEventArgs e)
-        {
-            isMouseDown = false;
-            if (cadPictBox != null) cadPictBox.Cursor = Cursors.Default;
-            cadPictBox?.Invalidate();
-        }
-
-        private void OnCADPictBoxMouseDoubleClick(object sender, MouseEventArgs e)
-        {
-            if (!IsLoaded) return;
-            ResetScaling();
-        }
-
-        private void OnCADPictBoxMouseMove(object sender, MouseEventArgs e)
-        {
-            if (cadImage == null || cadPictBox == null) return;
-
-            if (isMouseDown)
-            {
-                position.X -= currentXClickPosition - e.X;
-                position.Y -= currentYClickPosition - e.Y;
-                currentXClickPosition = e.X;
-                currentYClickPosition = e.Y;
-                cadPictBox.Invalidate();
-                SetPictureBoxPosition(position);
-            }
-            positionPrev = new PointF(e.X, e.Y);
-        }
-
-        private void OnCADPictBoxPaint(object sender, PaintEventArgs e)
-        {
-            if (cadImage == null || cadPictBox == null) return;
-            if (!cadPictBox.Visible) return;
-
-            DrawCADImage(e.Graphics);
+            _panel.Invalidate();
             StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
         }
 
-        private void Shift()
+        private void OnMouseDown(object? sender, MouseEventArgs e)
         {
-            LeftImagePosition = positionPrev.X - (positionPrev.X - LeftImagePosition) * imageScale / imageScalePrev;
-            TopImagePosition = positionPrev.Y - (positionPrev.Y - TopImagePosition) * imageScale / imageScalePrev;
-            imageScalePrev = imageScale;
+            if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right || e.Button == MouseButtons.Middle)
+            {
+                _lastMouse = e.Location;
+                _isMouseDown = true;
+                if (_panel != null) _panel.Cursor = Cursors.SizeAll;
+            }
         }
 
-        private void DrawCADImage(Graphics g)
+        private void OnMouseMove(object? sender, MouseEventArgs e)
         {
+            if (!_isMouseDown || _panel == null || _model == null) return;
+
+            _panX += (e.X - _lastMouse.X);
+            _panY += (e.Y - _lastMouse.Y);
+            _lastMouse = e.Location;
+
+            _panel.Invalidate();
+        }
+
+        private void OnMouseUp(object? sender, MouseEventArgs e)
+        {
+            _isMouseDown = false;
+            if (_panel != null) _panel.Cursor = Cursors.Default;
+        }
+
+        // ─── GDI+ 矢量硬件渲染 ───
+
+        private void OnPaint(object? sender, PaintEventArgs e)
+        {
+            if (_model == null || _cadGraphics == null || _panel == null || !_panel.Visible) return;
+
             try
             {
-                Shift();
-                RectangleF tmp = ImageRectangleF;
-                SetSizePictureBox(new Size((int)tmp.Width, (int)tmp.Height));
-                SetPictureBoxPosition(position);
-                cadImage?.Draw(g, tmp, cadPictBox);
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                var bounds = new Bounds3D();
+                _cadGraphics.BoundingBox(bounds);
+
+                if (bounds.Initialized)
+                {
+                    int w = Math.Max(1, _panel.ClientSize.Width);
+                    int h = Math.Max(1, _panel.ClientSize.Height);
+
+                    // 1. 基准自适应居中变换（带 10px 边距）
+                    var baseTransform = Transformation4D.GetBoundsToScreenTransform(bounds, w, h, 10);
+
+                    // 2. 缩放与平移变换
+                    var finalTransform = Transformation4D.Translation(w / 2f + _panX, h / 2f + _panY, 0)
+                                       * Transformation4D.Scaling(_zoom, _zoom, 1)
+                                       * Transformation4D.Translation(-w / 2f, -h / 2f, 0)
+                                       * baseTransform;
+
+                    // 3. 极速 GDI+ 矢量绘制
+                    _cadGraphics.Draw(g, _panel.ClientRectangle, finalTransform);
+                }
             }
             catch
             {
             }
+
+            StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
         }
 
-        private void SetSizePictureBox(Size sz)
+        // ─── 外部公共 API ───
+
+        public void ZoomIn()
         {
-            if (cadPictBox == null) return;
-
-            if (((position.X < 0) || (position.Y < 0) ||
-                 (position.X + sz.Width > cadPictBox.Width) ||
-                 (position.Y + sz.Height > cadPictBox.Height)) && IsSizeWithInBox())
-            {
-                if (position.X < 0)
-                    sz.Width = (int)(cadPictBox.Width - position.X);
-
-                if (position.Y < 0)
-                    sz.Height = (int)(cadPictBox.Height - position.Y);
-
-                if (position.X + sz.Width > cadPictBox.Width)
-                    sz.Width = (int)(cadPictBox.Width + position.X);
-
-                if (position.Y + sz.Height > cadPictBox.Height)
-                    sz.Height = (int)(cadPictBox.Height + position.Y);
-            }
-            cadPictBox.SetVirtualSizeNoInvalidate(sz);
+            _zoom *= 1.25f;
+            if (_zoom > 50f) _zoom = 50f;
+            _panel?.Invalidate();
+            StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
         }
 
-        private bool IsSizeWithInBox()
+        public void ZoomOut()
         {
-            if (cadPictBox == null) return false;
-            RectangleF tmp = ImageRectangleF;
-            return (tmp.Width <= cadPictBox.Size.Width) || (tmp.Height <= cadPictBox.Height);
+            _zoom *= 0.8f;
+            if (_zoom < 0.02f) _zoom = 0.02f;
+            _panel?.Invalidate();
+            StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
+        }
+
+        public void ResetScaling()
+        {
+            _zoom = 1f;
+            _panX = 0f;
+            _panY = 0f;
+            _panel?.Invalidate();
+            StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
         }
 
         public void Resize()
         {
-            if (cadImage == null || cadPictBox == null) return;
-            if (cadPictBox.ClientRectangle.Height == 0 || cadImage.AbsHeight == 0) return;
-
-            float wh = (float)(cadImage.AbsWidth / cadImage.AbsHeight);
-            float new_wh = (float)cadPictBox.ClientRectangle.Width / cadPictBox.ClientRectangle.Height;
-
-            if (cadImage is CADRasterImage)
-                visibleArea = new SizeF((float)cadImage.AbsWidth, (float)cadImage.AbsHeight);
-            else
-                visibleArea = cadPictBox.Size;
-
-            if (new_wh > wh)
-                visibleArea.Width = visibleArea.Height * wh;
-            else
-            {
-                if (new_wh < wh)
-                    visibleArea.Height = visibleArea.Width / wh;
-                else
-                    visibleArea = cadPictBox.Size;
-            }
-            LeftImagePosition = (cadPictBox.ClientRectangle.Width - visibleArea.Width) / 2f;
-            TopImagePosition = (cadPictBox.ClientRectangle.Height - visibleArea.Height) / 2f;
-            cadPictBox.Invalidate();
-        }
-
-        private void SetPictureBoxPosition(PointF value)
-        {
-            try
-            {
-                if (cadPictBox == null) return;
-
-                int w1 = value.X > 0 ? 0 : (int)Math.Abs(value.X);
-                if (w1 > cadPictBox.VirtualSize.Width)
-                    w1 = cadPictBox.VirtualSize.Width;
-
-                int h1 = value.Y > 0 ? 0 : (int)Math.Abs(value.Y);
-                if (h1 > cadPictBox.VirtualSize.Height)
-                    h1 = cadPictBox.VirtualSize.Height;
-
-                cadPictBox.SetPositionNoInvalidate(new Point(w1, h1));
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine(e.ToString());
-            }
-        }
-
-        public void Zoom(float i)
-        {
-            if (cadImage == null) return;
-            imageScale *= i;
-            if (imageScale < 0.005f) imageScale = 0.005f;
-            cadPictBox?.Invalidate();
-        }
-
-        public void ZoomIn() => Zoom(1.33f);
-        public void ZoomOut() => Zoom(0.75f);
-
-        public void ResetScaling()
-        {
-            if (cadPictBox == null) return;
-            imageScale = 1f;
-            imageScalePrev = 1f;
-            Resize();
-            LeftImagePosition = (cadPictBox.ClientRectangle.Width - visibleArea.Width) / 2f;
-            TopImagePosition = (cadPictBox.ClientRectangle.Height - visibleArea.Height) / 2f;
-            cadPictBox.Invalidate();
+            _panel?.Invalidate();
         }
 
         public void LoadFile(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return;
 
-            if (cadImage != null)
+            _model = null;
+            _cadGraphics = null;
+            _zoom = 1f;
+            _panX = 0f;
+            _panY = 0f;
+
+            try
             {
-                cadImage.Dispose();
-                cadImage = null;
+                string ext = Path.GetExtension(fileName).ToLowerInvariant();
+                _model = (ext == ".dxf") ? DxfReader.Read(fileName) : DwgReader.Read(fileName);
+
+                _graphicsConfig = new GraphicsConfig();
+                _graphicsConfig.CorrectColorForBackgroundColor = true;
+                _graphicsConfig.BackColor = IsDark ? new ArgbColor(24, 24, 26) : new ArgbColor(255, 255, 255);
+
+                _cadGraphics = new GDIGraphics3D(_graphicsConfig);
+                _cadGraphics.CreateDrawables(_model);
+            }
+            catch
+            {
+                _model = null;
+                _cadGraphics = null;
             }
 
-            imageScale = 1f;
-            imageScalePrev = 1f;
-            position = new PointF();
-
-            cadImage = CADImage.CreateImageByExtension(fileName);
-            if (cadImage != null)
-            {
-                cadImage.LoadFromFile(fileName);
-            }
-
-            SetCADImageOptions();
+            _panel?.Invalidate();
+            StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
             AfterLoaded?.Invoke(this, fileName);
         }
 
-        public void SetCADImageOptions()
+        public bool SetBackColor(bool isDark)
         {
-            if (cadImage == null || cadPictBox == null) return;
+            IsDark = isDark;
+            if (_panel == null) return isDark;
 
-            cadImage.IsShowLineWeight = false;
+            _panel.BackColor = isDark ? Color.FromArgb(24, 24, 26) : Color.White;
 
-            SetBackColor(IsDark);
-
-            if (cadPictBox.BackColor == Color.White)
+            if (_graphicsConfig != null)
             {
-                cadImage.DefaultColor = Color.Black;
-                cadImage.BackgroundColor = Color.White;
-            }
-            else
-            {
-                cadImage.DefaultColor = Color.White;
-                cadImage.BackgroundColor = Color.Black;
+                _graphicsConfig.BackColor = isDark ? new ArgbColor(24, 24, 26) : new ArgbColor(255, 255, 255);
             }
 
-            SetDrawingColors(drawingColor);
-            SetTextVisible(textVisible);
+            if (_model != null)
+            {
+                _cadGraphics = new GDIGraphics3D(_graphicsConfig!);
+                _cadGraphics.CreateDrawables(_model);
+            }
 
-            Resize();
-            SetPictureBoxPosition(position);
+            _panel.Invalidate();
+            return isDark;
         }
 
         public bool SetDrawingColors(bool val)
         {
-            drawingColor = val;
-            if (cadImage == null) return false;
-            cadImage.DrawMode = val ? CADDrawMode.Normal : CADDrawMode.Black;
-            cadPictBox?.Invalidate();
-            return val;
-        }
-
-        public bool SetBackColor(bool val)
-        {
-            IsDark = val;
-            if (cadPictBox == null) return val;
-
-            if (val)
-            {
-                cadPictBox.BackColor = Color.Black;
-                if (cadImage != null)
-                {
-                    cadImage.DefaultColor = Color.White;
-                    cadImage.BackgroundColor = Color.Black;
-                    if (cadImage.Painter?.Settings != null)
-                    {
-                        cadImage.Painter.Settings.DefaultColor = Color.White.ToArgb();
-                        cadImage.Painter.Settings.BackgroundColor = Color.Black.ToArgb();
-                    }
-                }
-            }
-            else
-            {
-                cadPictBox.BackColor = Color.White;
-                if (cadImage != null)
-                {
-                    cadImage.DefaultColor = Color.Black;
-                    cadImage.BackgroundColor = Color.White;
-                    if (cadImage.Painter?.Settings != null)
-                    {
-                        cadImage.Painter.Settings.DefaultColor = Color.Black.ToArgb();
-                        cadImage.Painter.Settings.BackgroundColor = Color.White.ToArgb();
-                    }
-                }
-            }
-
-            cadPictBox.Invalidate();
+            _panel?.Invalidate();
             return val;
         }
 
         public bool SetTextVisible(bool val)
         {
-            textVisible = val;
-            if (cadImage == null) return val;
-            cadImage.TextVisible = val;
-            cadPictBox?.Invalidate();
+            _panel?.Invalidate();
             return val;
         }
     }

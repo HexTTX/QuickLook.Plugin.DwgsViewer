@@ -28,8 +28,20 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
     <Reference Include="WindowsFormsIntegration" />
-    <Reference Include="CADImport">
-      <HintPath Condition="Exists('References\CADImport.dll')">References\CADImport.dll</HintPath>
+    <Reference Include="WW.Cad">
+      <HintPath>References\WW.Cad.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="WW">
+      <HintPath>References\WW.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="WW.GL">
+      <HintPath>References\WW.GL.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="WW.License">
+      <HintPath>References\WW.License.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="QuickLook.Common">

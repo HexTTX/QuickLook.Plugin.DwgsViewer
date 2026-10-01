@@ -4,8 +4,12 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
-using CADImport;
-
+using WW.Cad.Drawing;
+using WW.Cad.Drawing.GDI;
+using WW.Cad.IO;
+using WW.Cad.Model;
+using WW.Drawing;
+using WW.Math;
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
     public static class DwgThumbnailExtractor
@@ -15,80 +19,38 @@ namespace QuickLook.Plugin.DwgsViewer.Core
             0x9D, 0x57, 0xCA, 0x3F, 0x9D, 0x44, 0x10, 0x2B
         };
 
-        static DwgThumbnailExtractor()
-        {
-            UnlockWatermark();
-        }
 
-        public static void UnlockWatermark()
-        {
-            try
-            {
-                var asm = typeof(CADImport.CADImage).Assembly;
-                var field = asm.ManifestModule.ResolveField(0x040005B7);
-                field?.SetValue(null, 1);
-            }
-            catch { }
-        }
-
+        // 使用 CadLib (WW.Cad) 渲染缩略图：
+        // - DxfModel 是纯实例对象，无静态全局变量，天然线程安全
+        // - 正确解析 CADInsert（图块引用），不会出现 SGLines 内存溢出
+        // - 完整渲染 WBLOCK 导出的图块文件（无内嵌预览的 DWG）
         public static Bitmap? RenderCadDrawing(string filePath, int width, int height, bool isDark)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                 return null;
 
-            // 1. 优先使用 CADImport 完整矢量引擎渲染（与 QuickLook.Plugin.CADImport 一致，完整呈现图元、线型与尺寸）
             try
             {
-                var cadImage = CADImage.CreateImageByExtension(filePath);
-                if (cadImage != null)
-                {
-                    cadImage.LoadFromFile(filePath);
+                string ext = Path.GetExtension(filePath).ToLowerInvariant();
+                DxfModel model;
+                if (ext == ".dxf")
+                    model = DxfReader.Read(filePath);
+                else
+                    model = DwgReader.Read(filePath);
 
-                    cadImage.BackgroundColor = isDark ? Color.Black : Color.White;
-                    cadImage.DefaultColor = isDark ? Color.White : Color.Black;
-                    if (cadImage.Painter != null && cadImage.Painter.Settings != null)
-                    {
-                        cadImage.Painter.Settings.BackgroundColor = (isDark ? Color.Black : Color.White).ToArgb();
-                        cadImage.Painter.Settings.DefaultColor = (isDark ? Color.White : Color.Black).ToArgb();
-                    }
+                var config = new GraphicsConfig();
+                config.BackColor = isDark ? new ArgbColor(24, 24, 26) : new ArgbColor(255, 255, 255);
+                config.CorrectColorForBackgroundColor = true;
 
-                    double imgW = cadImage.AbsWidth;
-                    double imgH = cadImage.AbsHeight;
-                    if (imgW <= 0) imgW = 100;
-                    if (imgH <= 0) imgH = 100;
+                Bitmap bmp = ImageExporter.CreateAutoSizedBitmap(
+                    model, Matrix4D.Identity, config, SmoothingMode.AntiAlias, new Size(width, height));
 
-                    Bitmap bmp = new Bitmap(width, height);
-                    using (Graphics g = Graphics.FromImage(bmp))
-                    {
-                        g.Clear(isDark ? Color.FromArgb(24, 24, 26) : Color.White);
-                        g.SmoothingMode = SmoothingMode.AntiAlias;
-                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-
-                        float wh = (float)(imgW / imgH);
-                        float new_wh = (float)width / height;
-                        SizeF visibleArea;
-                        if (new_wh > wh)
-                            visibleArea = new SizeF(height * wh, height);
-                        else
-                            visibleArea = new SizeF(width, width / wh);
-
-                        float left = (width - visibleArea.Width) / 2f;
-                        float top = (height - visibleArea.Height) / 2f;
-                        RectangleF rect = new RectangleF(left, top, visibleArea.Width, visibleArea.Height);
-
-                        cadImage.Draw(g, rect);
-                    }
-                    cadImage.Dispose();
-                    return bmp;
-                }
+                return bmp;
             }
             catch
             {
-                // 降级使用文件头内嵌图
+                return null;
             }
-
-            // 2. 备用引擎：DWG 二进制文件头内嵌位图 / Windows Shell
-            return ExtractThumbnail(filePath, width);
         }
 
         public static Bitmap? ExtractThumbnail(string filePath, int targetSize = 256)
