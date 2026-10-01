@@ -13,30 +13,36 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
 {
     /// <summary>
     /// 基于 ACadSharp (MIT 开源许可) 的纯原生 GDI+ 矢量渲染引擎。
-    /// 【100% 纯净开源合规，零商业破解依赖】：
-    /// 1. 原生解析 DWG (AutoCAD R13 ~ 2018) 及 DXF 几何图元
-    /// 2. 递归展开图块引用（Insert / Block），支持平移、缩放与旋转变换矩阵
+    /// 【极致性能优化版】：
+    /// 1. 颜色预分组（Color-grouped batching）：大幅降低 GDI+ 状态切换开销
+    /// 2. GDI+ 对象池化与缓存（Pen / SolidBrush / Font 零 GC 内存分配）
     /// 3. 精准数学求解 LwPolyline 凸度弧线（Bulge）、Arc、Circle、Ellipse
     /// 4. 支持单行文本（TextEntity）与多行文本（MText）中英文字体矢量排版
-    /// 5. 自动适配深色/浅色底色与图层图元颜色
+    /// 5. 自动适配深色/浅色底色反色保护与毫秒级视口边界剔除
     /// </summary>
     public class ACadSharpEngine : ICadEngine
     {
         public string Name => "ACadSharp Open-Source Vector Engine";
         public bool IsAvailable => true;
 
-        private readonly List<RenderSegment> _segments = new List<RenderSegment>();
+        // 图元数据存储：按颜色归类分组，批次绘制
+        private readonly Dictionary<Color, List<XYZPair>> _colorGroups = new Dictionary<Color, List<XYZPair>>();
         private readonly List<RenderText> _texts = new List<RenderText>();
+
+        // GDI+ 对象缓存池，彻底避免缩放平移时的垃圾回收停顿与句柄泄漏
+        private readonly Dictionary<Color, Pen> _penCache = new Dictionary<Color, Pen>();
+        private readonly Dictionary<Color, SolidBrush> _brushCache = new Dictionary<Color, SolidBrush>();
+        private readonly Dictionary<int, Font> _fontCache = new Dictionary<int, Font>();
 
         private double _minX, _minY, _maxX, _maxY;
         private bool _isLoaded;
         private bool _isDark = true;
 
-        private struct RenderSegment
+        public struct XYZPair
         {
             public XYZ P1;
             public XYZ P2;
-            public Color Color;
+            public XYZPair(XYZ p1, XYZ p2) { P1 = p1; P2 = p2; }
         }
 
         private struct RenderText
@@ -54,14 +60,14 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
 
             try
             {
-                var segments = new List<RenderSegment>();
+                var groups = new Dictionary<Color, List<XYZPair>>();
                 var texts = new List<RenderText>();
                 double minX = double.MaxValue, minY = double.MaxValue;
                 double maxX = double.MinValue, maxY = double.MinValue;
 
-                ParseDrawing(filePath, segments, texts, ref minX, ref minY, ref maxX, ref maxY);
+                ParseDrawing(filePath, groups, texts, ref minX, ref minY, ref maxX, ref maxY);
 
-                if (segments.Count == 0 && texts.Count == 0)
+                if (groups.Count == 0 && texts.Count == 0)
                     return null;
 
                 double dw = maxX - minX;
@@ -79,18 +85,20 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     g.Clear(isDark ? Color.FromArgb(24, 24, 26) : Color.White);
                     g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                    // 绘制几何线段
-                    foreach (var seg in segments)
+                    // 按颜色批次绘制线段
+                    foreach (var kvp in groups)
                     {
-                        float sx1 = (float)(offX + (seg.P1.X - minX) * scale);
-                        float sy1 = (float)(height - offY - (seg.P1.Y - minY) * scale);
-                        float sx2 = (float)(offX + (seg.P2.X - minX) * scale);
-                        float sy2 = (float)(height - offY - (seg.P2.Y - minY) * scale);
-
-                        Color penColor = AdjustColorForBackground(seg.Color, isDark);
+                        Color penColor = AdjustColorForBackground(kvp.Key, isDark);
                         using (var pen = new Pen(penColor, 1.0f))
                         {
-                            g.DrawLine(pen, sx1, sy1, sx2, sy2);
+                            foreach (var seg in kvp.Value)
+                            {
+                                float sx1 = (float)(offX + (seg.P1.X - minX) * scale);
+                                float sy1 = (float)(height - offY - (seg.P1.Y - minY) * scale);
+                                float sx2 = (float)(offX + (seg.P2.X - minX) * scale);
+                                float sy2 = (float)(height - offY - (seg.P2.Y - minY) * scale);
+                                g.DrawLine(pen, sx1, sy1, sx2, sy2);
+                            }
                         }
                     }
 
@@ -100,7 +108,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                         float sx = (float)(offX + (txt.Location.X - minX) * scale);
                         float sy = (float)(height - offY - (txt.Location.Y - minY) * scale);
                         float pxHeight = (float)(txt.Height * scale);
-                        if (pxHeight < 5) continue; // 缩略图下过小文字略过以提升速度
+                        if (pxHeight < 5) continue; // 缩略图过小文字掠过以保证极速生成
 
                         Color textColor = AdjustColorForBackground(txt.Color, isDark);
                         using (var font = new Font("Microsoft YaHei", pxHeight, GraphicsUnit.Pixel))
@@ -131,9 +139,9 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 _maxX = double.MinValue;
                 _maxY = double.MinValue;
 
-                ParseDrawing(filePath, _segments, _texts, ref _minX, ref _minY, ref _maxX, ref _maxY);
+                ParseDrawing(filePath, _colorGroups, _texts, ref _minX, ref _minY, ref _maxX, ref _maxY);
 
-                _isLoaded = (_segments.Count > 0 || _texts.Count > 0);
+                _isLoaded = (_colorGroups.Count > 0 || _texts.Count > 0);
                 return _isLoaded;
             }
             catch
@@ -160,7 +168,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 int w = clientRect.Width;
                 int h = clientRect.Height;
 
-                // 基准居中缩放
+                // 基准居中比例
                 double baseScale = Math.Min((w - 40) / dw, (h - 40) / dh);
                 double scale = baseScale * zoom;
 
@@ -170,29 +178,34 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 double cadCenterX = (_minX + _maxX) / 2.0;
                 double cadCenterY = (_minY + _maxY) / 2.0;
 
-                // 绘制几何线段
-                foreach (var seg in _segments)
+                // 【性能极致优化】：利用缓存池与批次渲染，零 GC 产生！
+                foreach (var kvp in _colorGroups)
                 {
-                    float sx1 = (float)(centerViewX + (seg.P1.X - cadCenterX) * scale);
-                    float sy1 = (float)(centerViewY - (seg.P1.Y - cadCenterY) * scale); // CAD Y轴朝上，屏幕朝下
-                    float sx2 = (float)(centerViewX + (seg.P2.X - cadCenterX) * scale);
-                    float sy2 = (float)(centerViewY - (seg.P2.Y - cadCenterY) * scale);
+                    Color penColor = AdjustColorForBackground(kvp.Key, _isDark);
+                    Pen pen = GetCachedPen(penColor);
 
-                    // 视口边界裁剪剔除
-                    if ((sx1 < -50 && sx2 < -50) || (sx1 > w + 50 && sx2 > w + 50) ||
-                        (sy1 < -50 && sy2 < -50) || (sy1 > h + 50 && sy2 > h + 50))
-                        continue;
-
-                    Color penColor = AdjustColorForBackground(seg.Color, _isDark);
-                    using (var pen = new Pen(penColor, 1.2f))
+                    var list = kvp.Value;
+                    for (int i = 0; i < list.Count; i++)
                     {
+                        var seg = list[i];
+                        float sx1 = (float)(centerViewX + (seg.P1.X - cadCenterX) * scale);
+                        float sy1 = (float)(centerViewY - (seg.P1.Y - cadCenterY) * scale);
+                        float sx2 = (float)(centerViewX + (seg.P2.X - cadCenterX) * scale);
+                        float sy2 = (float)(centerViewY - (seg.P2.Y - cadCenterY) * scale);
+
+                        // 快速粗粒度视口边界剔除
+                        if ((sx1 < -100 && sx2 < -100) || (sx1 > w + 100 && sx2 > w + 100) ||
+                            (sy1 < -100 && sy2 < -100) || (sy1 > h + 100 && sy2 > h + 100))
+                            continue;
+
                         g.DrawLine(pen, sx1, sy1, sx2, sy2);
                     }
                 }
 
                 // 绘制文字
-                foreach (var txt in _texts)
+                for (int i = 0; i < _texts.Count; i++)
                 {
+                    var txt = _texts[i];
                     float sx = (float)(centerViewX + (txt.Location.X - cadCenterX) * scale);
                     float sy = (float)(centerViewY - (txt.Location.Y - cadCenterY) * scale);
                     float pxHeight = (float)(txt.Height * scale);
@@ -201,11 +214,10 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     if (sx < -200 || sx > w + 200 || sy < -200 || sy > h + 200) continue;
 
                     Color textColor = AdjustColorForBackground(txt.Color, _isDark);
-                    using (var font = new Font("Microsoft YaHei", pxHeight, GraphicsUnit.Pixel))
-                    using (var brush = new SolidBrush(textColor))
-                    {
-                        g.DrawString(txt.Text, font, brush, sx, sy - pxHeight);
-                    }
+                    Font font = GetCachedFont((int)Math.Round(pxHeight));
+                    Brush brush = GetCachedBrush(textColor);
+
+                    g.DrawString(txt.Text, font, brush, sx, sy - pxHeight);
                 }
             }
             catch
@@ -220,9 +232,19 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
 
         public void Unload()
         {
-            _segments.Clear();
+            _colorGroups.Clear();
             _texts.Clear();
             _isLoaded = false;
+
+            // 清理缓存池
+            foreach (var p in _penCache.Values) p.Dispose();
+            _penCache.Clear();
+
+            foreach (var b in _brushCache.Values) b.Dispose();
+            _brushCache.Clear();
+
+            foreach (var f in _fontCache.Values) f.Dispose();
+            _fontCache.Clear();
         }
 
         public void Dispose()
@@ -230,11 +252,44 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
             Unload();
         }
 
+        // ─── GDI+ 缓存池辅助函数 ───
+
+        private Pen GetCachedPen(Color c)
+        {
+            if (!_penCache.TryGetValue(c, out var pen))
+            {
+                pen = new Pen(c, 1.2f);
+                _penCache[c] = pen;
+            }
+            return pen;
+        }
+
+        private Brush GetCachedBrush(Color c)
+        {
+            if (!_brushCache.TryGetValue(c, out var brush))
+            {
+                brush = new SolidBrush(c);
+                _brushCache[c] = brush;
+            }
+            return brush;
+        }
+
+        private Font GetCachedFont(int pxHeight)
+        {
+            pxHeight = Math.Max(6, Math.Min(256, pxHeight));
+            if (!_fontCache.TryGetValue(pxHeight, out var font))
+            {
+                font = new Font("Microsoft YaHei", pxHeight, GraphicsUnit.Pixel);
+                _fontCache[pxHeight] = font;
+            }
+            return font;
+        }
+
         // ─── 核心 DWG / DXF 实体解析器 ───
 
         private static void ParseDrawing(
             string filePath,
-            List<RenderSegment> segments,
+            Dictionary<Color, List<XYZPair>> groups,
             List<RenderText> texts,
             ref double minX, ref double minY, ref double maxX, ref double maxY)
         {
@@ -260,6 +315,18 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 localMaxY = Math.Max(localMaxY, p.Y);
             }
 
+            void AddSegment(XYZ p1, XYZ p2, Color color)
+            {
+                if (!groups.TryGetValue(color, out var list))
+                {
+                    list = new List<XYZPair>();
+                    groups[color] = list;
+                }
+                list.Add(new XYZPair(p1, p2));
+                UpdateBounds(p1);
+                UpdateBounds(p2);
+            }
+
             void ExtractEntity(Entity ent, Matrix4 transform, Color parentColor)
             {
                 Color color = parentColor;
@@ -276,11 +343,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
 
                 if (ent is Line line)
                 {
-                    var p1 = transform * line.StartPoint;
-                    var p2 = transform * line.EndPoint;
-                    segments.Add(new RenderSegment { P1 = p1, P2 = p2, Color = color });
-                    UpdateBounds(p1);
-                    UpdateBounds(p2);
+                    AddSegment(transform * line.StartPoint, transform * line.EndPoint, color);
                 }
                 else if (ent is LwPolyline poly)
                 {
@@ -297,9 +360,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                         {
                             var p1 = transform * new XYZ(v1.Location.X, v1.Location.Y, 0);
                             var p2 = transform * new XYZ(v2.Location.X, v2.Location.Y, 0);
-                            segments.Add(new RenderSegment { P1 = p1, P2 = p2, Color = color });
-                            UpdateBounds(p1);
-                            UpdateBounds(p2);
+                            AddSegment(p1, p2, color);
                         }
                         else
                         {
@@ -323,13 +384,11 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                             int steps = 16;
                             double step = theta / steps;
                             XYZ prev = transform * new XYZ(v1.Location.X, v1.Location.Y, 0);
-                            UpdateBounds(prev);
                             for (int k = 1; k <= steps; k++)
                             {
                                 double ang = startAngle + k * step;
                                 XYZ curr = transform * new XYZ(cx + radius * Math.Cos(ang), cy + radius * Math.Sin(ang), 0);
-                                segments.Add(new RenderSegment { P1 = prev, P2 = curr, Color = color });
-                                UpdateBounds(curr);
+                                AddSegment(prev, curr, color);
                                 prev = curr;
                             }
                         }
@@ -343,13 +402,11 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     if (end < start) end += Math.PI * 2;
                     double step = (end - start) / steps;
                     XYZ prev = transform * new XYZ(arc.Center.X + arc.Radius * Math.Cos(start), arc.Center.Y + arc.Radius * Math.Sin(start), 0);
-                    UpdateBounds(prev);
                     for (int s = 1; s <= steps; s++)
                     {
                         double ang = start + s * step;
                         XYZ curr = transform * new XYZ(arc.Center.X + arc.Radius * Math.Cos(ang), arc.Center.Y + arc.Radius * Math.Sin(ang), 0);
-                        segments.Add(new RenderSegment { P1 = prev, P2 = curr, Color = color });
-                        UpdateBounds(curr);
+                        AddSegment(prev, curr, color);
                         prev = curr;
                     }
                 }
@@ -358,13 +415,11 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     int steps = 36;
                     double step = Math.PI * 2 / steps;
                     XYZ prev = transform * new XYZ(circle.Center.X + circle.Radius, circle.Center.Y, 0);
-                    UpdateBounds(prev);
                     for (int s = 1; s <= steps; s++)
                     {
                         double ang = s * step;
                         XYZ curr = transform * new XYZ(circle.Center.X + circle.Radius * Math.Cos(ang), circle.Center.Y + circle.Radius * Math.Sin(ang), 0);
-                        segments.Add(new RenderSegment { P1 = prev, P2 = curr, Color = color });
-                        UpdateBounds(curr);
+                        AddSegment(prev, curr, color);
                         prev = curr;
                     }
                 }
@@ -376,7 +431,6 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                     double b = ellipse.MinorAxis;
                     double rot = Math.Atan2(ellipse.MajorAxisEndPoint.Y, ellipse.MajorAxisEndPoint.X);
                     XYZ prev = transform * new XYZ(ellipse.Center.X + a * Math.Cos(rot), ellipse.Center.Y + a * Math.Sin(rot), 0);
-                    UpdateBounds(prev);
                     for (int s = 1; s <= steps; s++)
                     {
                         double ang = s * step;
@@ -385,8 +439,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                         double gx = ellipse.Center.X + (lx * Math.Cos(rot) - ly * Math.Sin(rot));
                         double gy = ellipse.Center.Y + (lx * Math.Sin(rot) + ly * Math.Cos(rot));
                         XYZ curr = transform * new XYZ(gx, gy, 0);
-                        segments.Add(new RenderSegment { P1 = prev, P2 = curr, Color = color });
-                        UpdateBounds(curr);
+                        AddSegment(prev, curr, color);
                         prev = curr;
                     }
                 }
@@ -432,12 +485,10 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
             int brightness = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114);
             if (isDark)
             {
-                // 暗色背景下：过暗线条提升为浅亮色，防止黑线看不见
                 if (brightness < 45) return Color.FromArgb(220, 220, 220);
             }
             else
             {
-                // 亮色背景下：过亮线条调暗，防止白线看不见
                 if (brightness > 215) return Color.FromArgb(30, 30, 30);
             }
             return c;
