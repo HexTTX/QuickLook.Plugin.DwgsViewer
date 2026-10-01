@@ -1,22 +1,14 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.IO;
 using System.Windows.Forms;
-using WW.Cad.Drawing;
-using WW.Cad.Drawing.GDI;
-using WW.Cad.IO;
-using WW.Cad.Model;
-using WW.Drawing;
-using WW.Math;
-using Color = System.Drawing.Color;
+using QuickLook.Plugin.DwgsViewer.Core.CadEngine;
 
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
     /// <summary>
-    /// 基于 CadLib (WW.Cad) 的 CAD 纯矢量渲染引擎。
-    /// 纯实例架构，无静态全局状态，天然线程安全，无水印。
-    /// 完全替代旧版 CADImport 引擎。
+    /// CAD 交互视图控制器。
+    /// 承载标准 WinForms Panel 双缓冲绘图，处理鼠标滚轮以光标为中心的平移缩放交互，
+    /// 底层渲染由 CadEngineManager 统一管理与热插拔调度。
     /// </summary>
     public class CADImaging : IDisposable
     {
@@ -24,15 +16,12 @@ namespace QuickLook.Plugin.DwgsViewer.Core
         public event EventHandler<string>? AfterLoaded;
 
         private Panel? _panel;
-        private DxfModel? _model;
-        private GDIGraphics3D? _cadGraphics;
-        private GraphicsConfig? _graphicsConfig;
-
         private float _zoom = 1f;
         private float _panX = 0f;
         private float _panY = 0f;
         private Point _lastMouse;
         private bool _isMouseDown;
+        private bool _isLoaded;
 
         public CADImaging(Panel panel)
         {
@@ -53,20 +42,18 @@ namespace QuickLook.Plugin.DwgsViewer.Core
             _panel.MouseDoubleClick += (_, _) => { if (IsLoaded) ResetScaling(); };
             _panel.VisibleChanged += (_, _) =>
             {
-                if (_model == null || _panel == null || !_panel.Visible) return;
+                if (!_isLoaded || _panel == null || !_panel.Visible) return;
                 ResetScaling();
             };
         }
 
         public void Dispose()
         {
-            _cadGraphics = null;
-            _graphicsConfig = null;
-            _model = null;
+            CadEngineManager.Instance.Unload();
             _panel = null;
         }
 
-        public bool IsLoaded => _model != null;
+        public bool IsLoaded => _isLoaded;
         public bool IsDark { get; set; } = true;
         public string RealScale => $"{_zoom * 100:F0}";
 
@@ -74,7 +61,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
 
         private void OnMouseWheel(object? sender, MouseEventArgs e)
         {
-            if (_panel == null || _model == null) return;
+            if (_panel == null || !_isLoaded) return;
 
             float factor = e.Delta > 0 ? 1.25f : 0.8f;
             _zoom *= factor;
@@ -101,7 +88,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
 
         private void OnMouseMove(object? sender, MouseEventArgs e)
         {
-            if (!_isMouseDown || _panel == null || _model == null) return;
+            if (!_isMouseDown || _panel == null || !_isLoaded) return;
 
             _panX += (e.X - _lastMouse.X);
             _panY += (e.Y - _lastMouse.Y);
@@ -120,33 +107,11 @@ namespace QuickLook.Plugin.DwgsViewer.Core
 
         private void OnPaint(object? sender, PaintEventArgs e)
         {
-            if (_model == null || _cadGraphics == null || _panel == null || !_panel.Visible) return;
+            if (!_isLoaded || _panel == null || !_panel.Visible) return;
 
             try
             {
-                var g = e.Graphics;
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-
-                var bounds = new Bounds3D();
-                _cadGraphics.BoundingBox(bounds);
-
-                if (bounds.Initialized)
-                {
-                    int w = Math.Max(1, _panel.ClientSize.Width);
-                    int h = Math.Max(1, _panel.ClientSize.Height);
-
-                    // 1. 基准自适应居中变换（带 10px 边距）
-                    var baseTransform = Transformation4D.GetBoundsToScreenTransform(bounds, w, h, 10);
-
-                    // 2. 缩放与平移变换
-                    var finalTransform = Transformation4D.Translation(w / 2f + _panX, h / 2f + _panY, 0)
-                                       * Transformation4D.Scaling(_zoom, _zoom, 1)
-                                       * Transformation4D.Translation(-w / 2f, -h / 2f, 0)
-                                       * baseTransform;
-
-                    // 3. 极速 GDI+ 矢量绘制
-                    _cadGraphics.Draw(g, _panel.ClientRectangle, finalTransform);
-                }
+                CadEngineManager.Instance.RenderDetail(e.Graphics, _panel.ClientRectangle, _zoom, _panX, _panY);
             }
             catch
             {
@@ -191,29 +156,11 @@ namespace QuickLook.Plugin.DwgsViewer.Core
         {
             if (string.IsNullOrEmpty(fileName)) return;
 
-            _model = null;
-            _cadGraphics = null;
             _zoom = 1f;
             _panX = 0f;
             _panY = 0f;
 
-            try
-            {
-                string ext = Path.GetExtension(fileName).ToLowerInvariant();
-                _model = (ext == ".dxf") ? DxfReader.Read(fileName) : DwgReader.Read(fileName);
-
-                _graphicsConfig = new GraphicsConfig();
-                _graphicsConfig.CorrectColorForBackgroundColor = true;
-                _graphicsConfig.BackColor = IsDark ? new ArgbColor(24, 24, 26) : new ArgbColor(255, 255, 255);
-
-                _cadGraphics = new GDIGraphics3D(_graphicsConfig);
-                _cadGraphics.CreateDrawables(_model);
-            }
-            catch
-            {
-                _model = null;
-                _cadGraphics = null;
-            }
+            _isLoaded = CadEngineManager.Instance.Load(fileName, IsDark);
 
             _panel?.Invalidate();
             StatusUpdated?.Invoke(this, CADImagingEventArgs.NewStatusUpdatedEventArgs(RealScale));
@@ -226,17 +173,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
             if (_panel == null) return isDark;
 
             _panel.BackColor = isDark ? Color.FromArgb(24, 24, 26) : Color.White;
-
-            if (_graphicsConfig != null)
-            {
-                _graphicsConfig.BackColor = isDark ? new ArgbColor(24, 24, 26) : new ArgbColor(255, 255, 255);
-            }
-
-            if (_model != null)
-            {
-                _cadGraphics = new GDIGraphics3D(_graphicsConfig!);
-                _cadGraphics.CreateDrawables(_model);
-            }
+            CadEngineManager.Instance.SetBackColor(isDark);
 
             _panel.Invalidate();
             return isDark;

@@ -8,3 +8,5 @@ obj/
 *.qlplugin
 *.zip
 config.json
+References/*.dll
+Drivers/
