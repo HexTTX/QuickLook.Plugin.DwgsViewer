@@ -10,10 +10,12 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Forms.Integration;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using CADImport.FaceModule;
 using QuickLook.Common.Plugin;
 using QuickLook.Plugin.DwgsViewer.Core;
 using Brush = System.Windows.Media.Brush;
@@ -22,6 +24,7 @@ using Color = System.Drawing.Color;
 using Image = System.Windows.Controls.Image;
 using Point = System.Windows.Point;
 using Size = System.Windows.Size;
+using Grid = System.Windows.Controls.Grid;
 
 namespace QuickLook.Plugin.DwgsViewer
 {
@@ -57,7 +60,7 @@ namespace QuickLook.Plugin.DwgsViewer
         private ViewMode _currentMode = ViewMode.Grid;
         private FilterTab _currentTab = FilterTab.All;
 
-        // 缩略图生成队列与缓存
+        // 缩略图后台生成队列与缓存
         private CancellationTokenSource? _thumbnailCts;
         private readonly object _queueLock = new object();
         private readonly Queue<string> _thumbnailQueue = new Queue<string>();
@@ -90,20 +93,13 @@ namespace QuickLook.Plugin.DwgsViewer
         private ComboBox _cmbColumns = null!;
         private TextBlock _txtCadStatus = null!;
 
-        // Detail View Controls
-        private Grid _detailImageContainer = null!;
-        private Image _detailImage = null!;
-        private readonly TransformGroup _imageTransformGroup = new TransformGroup();
-        private readonly ScaleTransform _imageScaleTransform = new ScaleTransform(1.0, 1.0);
-        private readonly TranslateTransform _imageTranslateTransform = new TranslateTransform(0, 0);
-
-        private bool _isPanning = false;
-        private Point _lastPanPoint;
-        private Point _panStartPoint;
-        private bool _hasPanned = false;
-
-        private TextBlock _txtDetailError = null!;
-        private Border _detailToolbar = null!;
+        // Detail View Controls (原生矢量无极缩放渲染)
+        private WindowsFormsHost _cadHost = null!;
+        private CADPictureBox _cadPictBox = null!;
+        private CADImaging _cadImaging = null!;
+        private TextBlock _txtDetailFileName = null!;
+        private Border _detailTopBarBorder = null!;
+        private Border _detailBottomBorder = null!;
         private Button _btnBackToGrid = null!;
         private Button _btnPrev = null!;
         private Button _btnNext = null!;
@@ -111,13 +107,10 @@ namespace QuickLook.Plugin.DwgsViewer
         private ComboBox _cmbSlides = null!;
         private Button _btnInsertCad = null!;
         private Button _btnFavDetail = null!;
-        private Border _sepZoom = null!;
-        private Border _sepTheme = null!;
         private Button _btnZoomOut = null!;
         private Button _btnZoomReset = null!;
         private Button _btnZoomIn = null!;
         private Button _btnDetailTheme = null!;
-        private Bitmap? _currentDetailBitmap;
 
         // Theme Brushes
         private static readonly Brush DarkWindowBg = new SolidColorBrush(System.Windows.Media.Color.FromRgb(24, 24, 26));
@@ -160,7 +153,6 @@ namespace QuickLook.Plugin.DwgsViewer
             MouseDown += (s, e) => Focus();
             PreviewMouseDown += OnPreviewMouseDown;
             PreviewKeyDown += OnPreviewKeyDown;
-            PreviewMouseWheel += OnPreviewMouseWheel;
 
             CommandBindings.Add(new CommandBinding(NavigationCommands.BrowseBack, (s, e) =>
             {
@@ -201,9 +193,9 @@ namespace QuickLook.Plugin.DwgsViewer
             };
 
             var topBar = new Grid();
-            topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Folder info & Tabs
-            topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Search box
-            topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Columns & CAD Status & Theme
+            topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             // Left Section: Folder Name & Filter Tabs
             var leftPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -233,7 +225,6 @@ namespace QuickLook.Plugin.DwgsViewer
             leftPanel.Children.Add(_txtGridTitle);
             leftPanel.Children.Add(_txtGridCount);
 
-            // Filter Tabs: 全部 | ⭐ 收藏 | 🔥 常用
             _btnTabAll = CreateFilterTabButton("全部", FilterTab.All);
             _btnTabFav = CreateFilterTabButton("⭐ 收藏", FilterTab.Favorites);
             _btnTabFreq = CreateFilterTabButton("🔥 常用", FilterTab.Frequent);
@@ -381,7 +372,6 @@ namespace QuickLook.Plugin.DwgsViewer
             // Right Section: Columns Selector + CAD Status + Theme
             var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
-            // CAD Status Indicator
             _txtCadStatus = new TextBlock
             {
                 FontSize = 11,
@@ -393,7 +383,6 @@ namespace QuickLook.Plugin.DwgsViewer
             _txtCadStatus.MouseDown += (s, e) => RefreshCadStatus(showToast: true);
             rightPanel.Children.Add(_txtCadStatus);
 
-            // Columns selector
             var lblCols = new TextBlock
             {
                 Text = "列数:",
@@ -419,13 +408,12 @@ namespace QuickLook.Plugin.DwgsViewer
             _cmbColumns.Items.Add("6 列");
             _cmbColumns.Items.Add("8 列");
 
-            // Select configured columns
             int savedCols = ConfigManager.Columns;
             if (savedCols == 4) _cmbColumns.SelectedIndex = 1;
             else if (savedCols == 5) _cmbColumns.SelectedIndex = 2;
             else if (savedCols == 6) _cmbColumns.SelectedIndex = 3;
             else if (savedCols == 8) _cmbColumns.SelectedIndex = 4;
-            else _cmbColumns.SelectedIndex = 0; // 自动
+            else _cmbColumns.SelectedIndex = 0;
 
             _cmbColumns.SelectionChanged += (s, e) =>
             {
@@ -443,7 +431,6 @@ namespace QuickLook.Plugin.DwgsViewer
             };
             rightPanel.Children.Add(_cmbColumns);
 
-            // Theme Button
             _btnGridTheme = CreateToolbarButton("🌓", "切换底色 (B)");
             _btnGridTheme.Click += (s, e) => ToggleTheme();
             rightPanel.Children.Add(_btnGridTheme);
@@ -470,7 +457,6 @@ namespace QuickLook.Plugin.DwgsViewer
             };
             _scrollViewer.Content = _uniformGrid;
 
-            // Responsive Layout & Auto-load on scroll
             _scrollViewer.ScrollChanged += (s, e) =>
             {
                 if (e.ViewportWidthChange != 0)
@@ -497,81 +483,103 @@ namespace QuickLook.Plugin.DwgsViewer
 
             Children.Add(_gridView);
 
-            // ================= Detail View (Full View) =================
+            // ================= Detail View (Full Vector CAD View) =================
             _detailView = new Grid();
+            _detailView.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Row 0: Top Bar
+            _detailView.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Row 1: CAD View (WindowsFormsHost)
+            _detailView.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Row 2: Bottom Toolbar
 
-            _imageTransformGroup.Children.Add(_imageScaleTransform);
-            _imageTransformGroup.Children.Add(_imageTranslateTransform);
-
-            _detailImage = new Image
+            // Row 0: Top Bar (Back button, File name, Star button)
+            _detailTopBarBorder = new Border
             {
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(12, 12, 12, 60),
-                RenderTransform = _imageTransformGroup
+                Padding = new Thickness(14, 8, 14, 8),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                BorderBrush = DarkCardBorder,
+                Background = DarkWindowBg
             };
-            RenderOptions.SetBitmapScalingMode(_detailImage, BitmapScalingMode.HighQuality);
 
-            _detailImageContainer = new Grid
-            {
-                ClipToBounds = true,
-                Background = Brushes.Transparent
-            };
-            _detailImageContainer.Children.Add(_detailImage);
-            _detailImageContainer.MouseDown += OnDetailMouseDown;
-            _detailImageContainer.MouseMove += OnDetailMouseMove;
-            _detailImageContainer.MouseUp += OnDetailMouseUp;
-            _detailView.Children.Add(_detailImageContainer);
+            var detailTopBar = new Grid();
+            detailTopBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            detailTopBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            detailTopBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            _txtDetailError = new TextBlock
-            {
-                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 90, 90)),
-                FontSize = 14,
-                FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI"),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextAlignment = TextAlignment.Center,
-                Visibility = Visibility.Collapsed
-            };
-            _detailView.Children.Add(_txtDetailError);
-
-            // Back Button (Top Left in Detail View)
             _btnBackToGrid = new Button
             {
                 Content = "◀ 全部图纸",
-                ToolTip = "返回缩略图网格 (鼠标侧键后退 / 双击 / Backspace / Alt+←)",
+                ToolTip = "返回缩略图网格 (鼠标侧键后退 / Backspace / Alt+←)",
                 Background = DarkToolbarBg,
                 Foreground = TextPrimaryDark,
                 BorderBrush = DarkCardBorder,
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(12, 6, 12, 6),
+                Padding = new Thickness(10, 4, 10, 4),
                 Cursor = Cursors.Hand,
                 FontSize = 12,
                 Focusable = false,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(16, 14, 0, 0)
+                VerticalAlignment = VerticalAlignment.Center
             };
             _btnBackToGrid.Click += (s, e) => SwitchToGridView();
-            _detailView.Children.Add(_btnBackToGrid);
+            Grid.SetColumn(_btnBackToGrid, 0);
+            detailTopBar.Children.Add(_btnBackToGrid);
 
-            // Detail Bottom Toolbar
-            _detailToolbar = new Border
+            _txtDetailFileName = new TextBlock
             {
-                Background = DarkToolbarBg,
-                BorderBrush = DarkCardBorder,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(18),
-                Padding = new Thickness(12, 4, 12, 4),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = TextPrimaryDark,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 0, 14)
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(_txtDetailFileName, 1);
+            detailTopBar.Children.Add(_txtDetailFileName);
+
+            _btnFavDetail = CreateToolbarButton("☆ 收藏", "收藏/取消收藏该图纸 (S)");
+            _btnFavDetail.Click += (s, e) => ToggleCurrentFavorite();
+            Grid.SetColumn(_btnFavDetail, 2);
+            detailTopBar.Children.Add(_btnFavDetail);
+
+            _detailTopBarBorder.Child = detailTopBar;
+            Grid.SetRow(_detailTopBarBorder, 0);
+            _detailView.Children.Add(_detailTopBarBorder);
+
+            // Row 1: Native Vector CAD View via CADPictureBox (No Airspace conflict!)
+            _cadPictBox = new CADPictureBox();
+            _cadImaging = new CADImaging(_cadPictBox);
+            _cadPictBox.Dock = System.Windows.Forms.DockStyle.Fill;
+            _cadPictBox.MouseDoubleClick += (s, e) =>
+            {
+                _cadImaging.ResetScaling();
+            };
+
+            _cadImaging.StatusUpdated += (s, e) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_btnZoomReset != null)
+                        _btnZoomReset.Content = $"{_cadImaging.RealScale}%";
+                }));
+            };
+
+            _cadHost = new WindowsFormsHost
+            {
+                Child = _cadPictBox
+            };
+            Grid.SetRow(_cadHost, 1);
+            _detailView.Children.Add(_cadHost);
+
+            // Row 2: Bottom Toolbar
+            _detailBottomBorder = new Border
+            {
+                Padding = new Thickness(14, 8, 14, 8),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                BorderBrush = DarkCardBorder,
+                Background = DarkWindowBg
             };
 
             var detailPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
 
@@ -616,44 +624,29 @@ namespace QuickLook.Plugin.DwgsViewer
             _btnInsertCad = new Button
             {
                 Content = "📥 插入到CAD",
-                ToolTip = "双击或点击此按钮，直接将图纸作为块插入至运行中的 AutoCAD / 浩辰 / 中望CAD",
+                ToolTip = "点击此按钮或按 I 键，直接将图纸作为块插入至运行中的 AutoCAD / 浩辰 / 中望CAD",
                 Background = AccentBlueBrush,
                 Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(10, 4, 10, 4),
+                Padding = new Thickness(12, 4, 12, 4),
                 Cursor = Cursors.Hand,
                 FontSize = 12,
                 FontWeight = FontWeights.Medium,
-                Margin = new Thickness(6, 0, 6, 0),
+                Margin = new Thickness(8, 0, 8, 0),
                 Focusable = false,
                 VerticalAlignment = VerticalAlignment.Center
             };
             _btnInsertCad.Click += (s, e) => TriggerInsertCurrentToCad();
             detailPanel.Children.Add(_btnInsertCad);
 
-            // 收藏图纸按钮
-            _btnFavDetail = CreateToolbarButton("☆ 收藏", "收藏/取消收藏该图纸");
-            _btnFavDetail.Click += (s, e) => ToggleCurrentFavorite();
-            detailPanel.Children.Add(_btnFavDetail);
-
-            _sepZoom = new Border
-            {
-                Width = 1,
-                Height = 14,
-                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(60, 255, 255, 255)),
-                Margin = new Thickness(6, 0, 6, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            detailPanel.Children.Add(_sepZoom);
-
-            _btnZoomOut = CreateToolbarButton("➖", "缩小 (- / 滚轮下滚)");
-            _btnZoomOut.Click += (s, e) => ZoomAt(1.0 / 1.25, new Point(_detailImageContainer.ActualWidth / 2, _detailImageContainer.ActualHeight / 2));
+            _btnZoomOut = CreateToolbarButton("➖", "缩小 (-)");
+            _btnZoomOut.Click += (s, e) => _cadImaging.ZoomOut();
             detailPanel.Children.Add(_btnZoomOut);
 
             _btnZoomReset = new Button
             {
                 Content = "100%",
-                ToolTip = "自适应 / 还原 100% (点击还原，双击图像也可还原)",
+                ToolTip = "自适应居中 (双击画布也可还原)",
                 Background = Brushes.Transparent,
                 Foreground = TextPrimaryDark,
                 BorderThickness = new Thickness(0),
@@ -664,29 +657,20 @@ namespace QuickLook.Plugin.DwgsViewer
                 Focusable = false,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            _btnZoomReset.Click += (s, e) => ResetZoom();
+            _btnZoomReset.Click += (s, e) => _cadImaging.ResetScaling();
             detailPanel.Children.Add(_btnZoomReset);
 
-            _btnZoomIn = CreateToolbarButton("➕", "放大 (+ / 滚轮上滚)");
-            _btnZoomIn.Click += (s, e) => ZoomAt(1.25, new Point(_detailImageContainer.ActualWidth / 2, _detailImageContainer.ActualHeight / 2));
+            _btnZoomIn = CreateToolbarButton("➕", "放大 (+)");
+            _btnZoomIn.Click += (s, e) => _cadImaging.ZoomIn();
             detailPanel.Children.Add(_btnZoomIn);
-
-            _sepTheme = new Border
-            {
-                Width = 1,
-                Height = 14,
-                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(60, 255, 255, 255)),
-                Margin = new Thickness(6, 0, 6, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            detailPanel.Children.Add(_sepTheme);
 
             _btnDetailTheme = CreateToolbarButton("🌓", "切换底色 (B)");
             _btnDetailTheme.Click += (s, e) => ToggleTheme();
             detailPanel.Children.Add(_btnDetailTheme);
 
-            _detailToolbar.Child = detailPanel;
-            _detailView.Children.Add(_detailToolbar);
+            _detailBottomBorder.Child = detailPanel;
+            Grid.SetRow(_detailBottomBorder, 2);
+            _detailView.Children.Add(_detailBottomBorder);
 
             Children.Add(_detailView);
 
@@ -824,7 +808,7 @@ namespace QuickLook.Plugin.DwgsViewer
             if (contentWidth <= 100) return;
 
             int cols = ConfigManager.Columns;
-            if (cols <= 0) // 自动
+            if (cols <= 0)
             {
                 cols = (int)Math.Max(2, Math.Round(contentWidth / 160.0));
             }
@@ -866,11 +850,15 @@ namespace QuickLook.Plugin.DwgsViewer
             _txtSearch.CaretBrush = primaryText;
             _btnClearSearch.Foreground = secondaryText;
 
-            _detailToolbar.Background = toolbarBg;
-            _detailToolbar.BorderBrush = cardBorder;
+            _detailTopBarBorder.Background = _isDarkBackground ? DarkWindowBg : LightWindowBg;
+            _detailTopBarBorder.BorderBrush = cardBorder;
+            _detailBottomBorder.Background = _isDarkBackground ? DarkWindowBg : LightWindowBg;
+            _detailBottomBorder.BorderBrush = cardBorder;
+
             _btnBackToGrid.Background = toolbarBg;
             _btnBackToGrid.Foreground = primaryText;
             _btnBackToGrid.BorderBrush = cardBorder;
+            _txtDetailFileName.Foreground = primaryText;
             _txtDetailCounter.Foreground = primaryText;
             _btnPrev.Foreground = primaryText;
             _btnNext.Foreground = primaryText;
@@ -879,8 +867,6 @@ namespace QuickLook.Plugin.DwgsViewer
             if (_btnZoomOut != null) _btnZoomOut.Foreground = primaryText;
             if (_btnZoomReset != null) _btnZoomReset.Foreground = primaryText;
             if (_btnZoomIn != null) _btnZoomIn.Foreground = primaryText;
-            if (_sepZoom != null) _sepZoom.Background = cardBorder;
-            if (_sepTheme != null) _sepTheme.Background = cardBorder;
 
             UpdateTabButtonStyles();
 
@@ -891,7 +877,7 @@ namespace QuickLook.Plugin.DwgsViewer
                 {
                     card.Background = _isDarkBackground ? DarkCardBg : LightCardBg;
                     card.BorderBrush = cardBorder;
-                    if (card.Child is Grid cardGrid && cardGrid.Children.Count >= 2 && cardGrid.Children[1] is TextBlock tb)
+                    if (card.Child is Grid cardGrid && cardGrid.Children.Count >= 2 && cardGrid.Children[cardGrid.Children.Count - 1] is TextBlock tb)
                     {
                         tb.Foreground = primaryText;
                     }
@@ -926,15 +912,14 @@ namespace QuickLook.Plugin.DwgsViewer
                 }
                 else
                 {
-                    // 检索当前目录下所有 .dwg 和 .dxf 图纸
                     var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".dwg", ".dxf" };
                     _allDrawingFiles = Directory.EnumerateFiles(_folderPath, "*.*")
                         .Where(f => exts.Contains(Path.GetExtension(f)))
                         .ToList();
                 }
+
                 _context.Title = $"{Path.GetFileName(_folderPath)} (共 {_allDrawingFiles.Count} 张 CAD 图纸)";
 
-                // 排序规则：收藏置顶 -> 插入频次高置顶 -> 文件名自然排序
                 SortDrawingFiles();
 
                 _cmbSlides.Items.Clear();
@@ -943,7 +928,6 @@ namespace QuickLook.Plugin.DwgsViewer
                     _cmbSlides.Items.Add(Path.GetFileName(f));
                 }
 
-                // 定位选中的初始文件
                 _currentIndex = _allDrawingFiles.FindIndex(f => string.Equals(f, _initialFilePath, StringComparison.OrdinalIgnoreCase));
                 if (_currentIndex < 0) _currentIndex = 0;
 
@@ -966,11 +950,11 @@ namespace QuickLook.Plugin.DwgsViewer
             {
                 bool favA = ConfigManager.IsFavorite(a);
                 bool favB = ConfigManager.IsFavorite(b);
-                if (favA != favB) return favB.CompareTo(favA); // 收藏置顶
+                if (favA != favB) return favB.CompareTo(favA);
 
                 int countA = ConfigManager.GetInsertCount(a);
                 int countB = ConfigManager.GetInsertCount(b);
-                if (countA != countB) return countB.CompareTo(countA); // 插入频次高排前
+                if (countA != countB) return countB.CompareTo(countA);
 
                 return string.Compare(Path.GetFileName(a), Path.GetFileName(b), StringComparison.OrdinalIgnoreCase);
             });
@@ -991,7 +975,6 @@ namespace QuickLook.Plugin.DwgsViewer
 
             LoadNextPage();
 
-            // 若窗口首批未铺满，补齐视口
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (_currentMode == ViewMode.Grid && _loadedCount < _filteredFiles.Count)
@@ -1079,10 +1062,9 @@ namespace QuickLook.Plugin.DwgsViewer
             };
 
             var cardGrid = new Grid();
-            cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Image Area
-            cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Name & Badges
+            cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            // Thumbnail Image Area
             var img = new Image
             {
                 Stretch = Stretch.Uniform,
@@ -1169,7 +1151,6 @@ namespace QuickLook.Plugin.DwgsViewer
 
             card.Child = cardGrid;
 
-            // Hover effects
             card.MouseEnter += (s, e) =>
             {
                 card.BorderBrush = AccentBlueBrush;
@@ -1183,12 +1164,10 @@ namespace QuickLook.Plugin.DwgsViewer
                 card.Background = _isDarkBackground ? DarkCardBg : LightCardBg;
             };
 
-            // 单击选中，双击触发 CAD 插入或大图预览
             card.MouseLeftButtonUp += (s, e) =>
             {
                 if (e.ClickCount >= 2)
                 {
-                    // 双击：优先插入运行中的 CAD
                     if (CadAutomationHelper.CheckRunningCad(out _))
                     {
                         TriggerInsertCad(filePath);
@@ -1212,7 +1191,6 @@ namespace QuickLook.Plugin.DwgsViewer
             string keyword = _txtSearch.Text.Trim();
             IEnumerable<string> query = _allDrawingFiles;
 
-            // Tab 筛选
             if (_currentTab == FilterTab.Favorites)
             {
                 query = query.Where(ConfigManager.IsFavorite);
@@ -1222,7 +1200,6 @@ namespace QuickLook.Plugin.DwgsViewer
                 query = query.Where(f => ConfigManager.GetInsertCount(f) > 0);
             }
 
-            // 关键词搜索
             if (!string.IsNullOrEmpty(keyword))
             {
                 query = query.Where(f => Path.GetFileName(f).IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0);
@@ -1311,7 +1288,6 @@ namespace QuickLook.Plugin.DwgsViewer
                     }
                     catch
                     {
-                        // Ignore individual failure
                     }
                 }
             }, token);
@@ -1402,32 +1378,16 @@ namespace QuickLook.Plugin.DwgsViewer
                 _btnFavDetail.Foreground = isFav ? GoldStarBrush : TextPrimaryDark;
 
                 _context.Title = $"[{_currentIndex + 1}/{_allDrawingFiles.Count}] {fileName} - {Path.GetFileName(_folderPath)}";
+                _txtDetailFileName.Text = $"{fileName}  ({_currentIndex + 1} / {_allDrawingFiles.Count})";
 
-                // 高清高质量 CAD 矢量渲染（全图元、颜色、尺寸与线型）
-                DpiScale dpi = GetCurrentDpi();
-                float dpiFactor = (float)dpi.DpiScaleX;
-                int renderW = (int)Math.Max(1600, 1200 * dpiFactor);
-                int renderH = (int)Math.Max(1200, 900 * dpiFactor);
-
-                Bitmap? newBitmap = DwgThumbnailExtractor.RenderCadDrawing(filePath, renderW, renderH, _isDarkBackground);
-
-                if (newBitmap == null)
-                {
-                    ShowDetailError($"未能提取图纸预览: {fileName}");
-                    return;
-                }
-
-                _currentDetailBitmap?.Dispose();
-                _currentDetailBitmap = newBitmap;
-
-                _detailImage.Source = BitmapToImageSource(newBitmap);
-                _detailImage.Visibility = Visibility.Visible;
-                _txtDetailError.Visibility = Visibility.Collapsed;
-                ResetZoom();
+                // 由 CADImaging 驱动 CADPictureBox 进行纯原生 GDI+ 矢量硬件双缓冲渲染！
+                // 彻底解决放大模糊问题，任意放大比例（100%、306%、1000%）文字与线条百分之百矢量锐利！
+                _cadImaging.SetBackColor(_isDarkBackground);
+                _cadImaging.LoadFile(filePath);
             }
             catch (Exception ex)
             {
-                ShowDetailError($"预览出错: {ex.Message}");
+                ShowToast($"预览出错: {ex.Message}");
             }
         }
 
@@ -1446,7 +1406,6 @@ namespace QuickLook.Plugin.DwgsViewer
             {
                 ConfigManager.RecordInsert(filePath);
                 ShowToast(msg);
-                // 刷新卡片上的插入徽章与 CAD 状态
                 RefreshCadStatus();
             }
             else
@@ -1493,98 +1452,7 @@ namespace QuickLook.Plugin.DwgsViewer
 
             if (_currentMode == ViewMode.Detail)
             {
-                RenderCurrentDetailSlide();
-            }
-        }
-
-        private void ZoomAt(double zoomFactor, Point center)
-        {
-            double oldScale = _imageScaleTransform.ScaleX;
-            double newScale = Math.Max(0.1, Math.Min(oldScale * zoomFactor, 30.0));
-            double factor = newScale / oldScale;
-
-            _imageTranslateTransform.X = center.X - (center.X - _imageTranslateTransform.X) * factor;
-            _imageTranslateTransform.Y = center.Y - (center.Y - _imageTranslateTransform.Y) * factor;
-
-            _imageScaleTransform.ScaleX = newScale;
-            _imageScaleTransform.ScaleY = newScale;
-
-            UpdateZoomButtonText();
-        }
-
-        private void ResetZoom()
-        {
-            _imageScaleTransform.ScaleX = 1.0;
-            _imageScaleTransform.ScaleY = 1.0;
-            _imageTranslateTransform.X = 0;
-            _imageTranslateTransform.Y = 0;
-            UpdateZoomButtonText();
-        }
-
-        private void UpdateZoomButtonText()
-        {
-            if (_btnZoomReset != null)
-            {
-                int pct = (int)Math.Round(_imageScaleTransform.ScaleX * 100);
-                _btnZoomReset.Content = $"{pct}%";
-            }
-        }
-
-        private void OnDetailMouseDown(object sender, MouseButtonEventArgs e)
-        {
-            if (_currentMode != ViewMode.Detail) return;
-
-            if (e.ChangedButton == MouseButton.Left || e.ChangedButton == MouseButton.Middle)
-            {
-                _isPanning = true;
-                _hasPanned = false;
-                _lastPanPoint = e.GetPosition(_detailImageContainer);
-                _panStartPoint = _lastPanPoint;
-                _detailImageContainer.CaptureMouse();
-            }
-        }
-
-        private void OnDetailMouseMove(object sender, MouseEventArgs e)
-        {
-            if (_isPanning && (e.LeftButton == MouseButtonState.Pressed || e.MiddleButton == MouseButtonState.Pressed))
-            {
-                Point current = e.GetPosition(_detailImageContainer);
-                Vector delta = current - _lastPanPoint;
-
-                if (!_hasPanned && (Math.Abs(current.X - _panStartPoint.X) > 3 || Math.Abs(current.Y - _panStartPoint.Y) > 3))
-                {
-                    _hasPanned = true;
-                    _detailImageContainer.Cursor = Cursors.SizeAll;
-                }
-
-                if (_hasPanned)
-                {
-                    _imageTranslateTransform.X += delta.X;
-                    _imageTranslateTransform.Y += delta.Y;
-                }
-
-                _lastPanPoint = current;
-            }
-        }
-
-        private void OnDetailMouseUp(object sender, MouseButtonEventArgs e)
-        {
-            if (_isPanning && (e.ChangedButton == MouseButton.Left || e.ChangedButton == MouseButton.Middle))
-            {
-                _isPanning = false;
-                _detailImageContainer.ReleaseMouseCapture();
-                _detailImageContainer.Cursor = Cursors.Arrow;
-            }
-        }
-
-        private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
-        {
-            if (_currentMode == ViewMode.Detail)
-            {
-                Point mousePos = e.GetPosition(_detailImageContainer);
-                double zoomDelta = e.Delta > 0 ? 1.15 : (1.0 / 1.15);
-                ZoomAt(zoomDelta, mousePos);
-                e.Handled = true;
+                _cadImaging.SetBackColor(_isDarkBackground);
             }
         }
 
@@ -1616,37 +1484,6 @@ namespace QuickLook.Plugin.DwgsViewer
                     return;
                 }
             }
-            else if (e.ChangedButton == MouseButton.Left && e.ClickCount == 2)
-            {
-                if (_currentMode == ViewMode.Detail)
-                {
-                    if (!IsDescendantOf(e.OriginalSource as DependencyObject, _detailToolbar) &&
-                        !IsDescendantOf(e.OriginalSource as DependencyObject, _btnBackToGrid))
-                    {
-                        if (_imageScaleTransform.ScaleX > 1.05 || _imageScaleTransform.ScaleX < 0.95 ||
-                            Math.Abs(_imageTranslateTransform.X) > 1 || Math.Abs(_imageTranslateTransform.Y) > 1)
-                        {
-                            ResetZoom();
-                        }
-                        else
-                        {
-                            SwitchToGridView();
-                        }
-                        e.Handled = true;
-                        return;
-                    }
-                }
-            }
-        }
-
-        private static bool IsDescendantOf(DependencyObject? node, DependencyObject parent)
-        {
-            while (node != null)
-            {
-                if (node == parent) return true;
-                node = VisualTreeHelper.GetParent(node);
-            }
-            return false;
         }
 
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -1700,20 +1537,20 @@ namespace QuickLook.Plugin.DwgsViewer
 
                     case Key.OemPlus:
                     case Key.Add:
-                        ZoomAt(1.2, new Point(_detailImageContainer.ActualWidth / 2, _detailImageContainer.ActualHeight / 2));
+                        _cadImaging.ZoomIn();
                         e.Handled = true;
                         break;
 
                     case Key.OemMinus:
                     case Key.Subtract:
-                        ZoomAt(1.0 / 1.2, new Point(_detailImageContainer.ActualWidth / 2, _detailImageContainer.ActualHeight / 2));
+                        _cadImaging.ZoomOut();
                         e.Handled = true;
                         break;
 
                     case Key.D0:
                     case Key.NumPad0:
                     case Key.F:
-                        ResetZoom();
+                        _cadImaging.ResetScaling();
                         e.Handled = true;
                         break;
 
@@ -1755,17 +1592,9 @@ namespace QuickLook.Plugin.DwgsViewer
 
         private void ShowError(string message)
         {
-            _txtDetailError.Text = message;
-            _txtDetailError.Visibility = Visibility.Visible;
-            _currentMode = ViewMode.Detail;
+            ShowToast(message);
+            _currentMode = ViewMode.Grid;
             UpdateViewVisibility();
-        }
-
-        private void ShowDetailError(string message)
-        {
-            _txtDetailError.Text = message;
-            _txtDetailError.Visibility = Visibility.Visible;
-            _detailImage.Visibility = Visibility.Collapsed;
         }
 
         private DpiScale GetCurrentDpi()
@@ -1786,7 +1615,7 @@ namespace QuickLook.Plugin.DwgsViewer
 
             if (_currentMode == ViewMode.Detail)
             {
-                RenderCurrentDetailSlide();
+                _cadImaging.Resize();
             }
             else if (_currentMode == ViewMode.Grid)
             {
@@ -1826,9 +1655,9 @@ namespace QuickLook.Plugin.DwgsViewer
             }
             _thumbnailCache.Clear();
 
-            _currentDetailBitmap?.Dispose();
-            _currentDetailBitmap = null;
-            _detailImage.Source = null;
+            _cadImaging?.Dispose();
+            _cadPictBox?.Dispose();
+            _cadHost?.Dispose();
         }
     }
 }
