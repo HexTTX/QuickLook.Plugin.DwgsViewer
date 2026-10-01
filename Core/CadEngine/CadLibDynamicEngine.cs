@@ -305,7 +305,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
             if (cfg == null) return null;
 
             object? backColor = isDark
-                ? _argbCtor?.Invoke(new object[] { 24, 24, 26 })
+                ? _argbCtor?.Invoke(new object[] { 0, 0, 0 })
                 : _argbCtor?.Invoke(new object[] { 255, 255, 255 });
 
             _cfgBackColorProp?.SetValue(cfg, backColor, null);

@@ -31,7 +31,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
         public CADImaging(Panel panel)
         {
             _panel = panel;
-            _panel.BackColor = Color.FromArgb(24, 24, 26);
+            _panel.BackColor = Color.Black;
             _panel.Cursor = Cursors.Default;
 
             // 开启底层原生双缓冲，彻底消除高频重绘闪烁
@@ -203,7 +203,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
             IsDark = isDark;
             if (_panel == null) return isDark;
 
-            _panel.BackColor = isDark ? Color.FromArgb(24, 24, 26) : Color.White;
+            _panel.BackColor = isDark ? Color.Black : Color.White;
             CadEngineManager.Instance.SetBackColor(isDark);
 
             _panel.Invalidate();

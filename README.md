@@ -61,9 +61,9 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
 - **Commercial Driver Hot-Plugging (For 100% Parity)**:
   - While our open-source engine covers most real-world engineering and furniture drawings, some hyper-complex drawings (e.g. proprietary 3D ACIS bodies, custom proxy objects) may not display completely.
   - **We have deliberately pre-built pluggable commercial driver interfaces (`ICadEngine`)**:
-    1. **WoutWare CadLib Driver**: Place `WW.Cad.dll` and `WW.dll` in the plugin root or `Drivers/` folder for pure multi-threaded vector rendering.
-    2. **CADSoftTools Driver**: Place `CADImport.dll` in the plugin root or `Drivers/` folder for auto-patched enterprise rendering.
-  - If present, the plugin automatically upgrades to commercial-grade rendering on the fly with zero recompilation needed!
+    1. **WoutWare CadLib Driver**: Place `WW.Cad.dll` and `WW.dll` in the plugin root or `Drivers/` folder for multi-threaded vector rendering.
+    2. **CADSoftTools Driver**: Place `CADImport.dll` in the plugin root or `Drivers/` folder for CAD .NET vector rendering.
+  - If present, the plugin automatically upgrades to the corresponding vector rendering pipeline with zero recompilation needed!
 ### 📦 Installation
 
 1. Download `QuickLook.Plugin.DwgsViewer.qlplugin` from [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases).
@@ -118,9 +118,9 @@ This plugin features a zero-dependency, pluggable rendering engine architecture:
 - **商业驱动预留接口（追求 100% 极致商业兼容）**：
   - 开源引擎虽已覆盖绝大多数常用工程设计与家具图纸，但对于极少部分极其特殊复杂的图纸（如三维 ACIS 实体、自定义代理实体等），若出现显示不全或要求 100% 商业级高保真还原：
   - **我们已专门预留了即插即用的商业驱动接口（`ICadEngine`）**：
-    1. **WoutWare CadLib 驱动**：将 `WW.Cad.dll` 与 `WW.dll` 放置于插件目录或 `Drivers/` 文件夹，自动激活纯实例无锁极速渲染；
-    2. **CADSoftTools 驱动**：将 `CADImport.dll` 放置于插件目录或 `Drivers/` 文件夹，自动解除水印并启动防崩保护。
-  - 插件启动时会自动检测并无缝切换至商业引擎，满足不同用户在轻量合规开源与极致本地画质之间的个性化需求！
+    1. **WoutWare CadLib 驱动**：将 `WW.Cad.dll` 与 `WW.dll` 放置于插件目录或 `Drivers/` 文件夹，自动激活极速矢量渲染；
+    2. **CADSoftTools 驱动**：将 `CADImport.dll` 放置于插件目录或 `Drivers/` 文件夹，自动激活 CAD .NET 矢量渲染与线程安全保护。
+  - 插件启动时会自动检测并无缝切换至对应驱动引擎，满足不同用户在轻量合规开源与极致本地画质之间的个性化需求！
 ### 📦 安装方式
 
 1. 在 [Releases](https://github.com/HexTTX/QuickLook.Plugin.DwgsViewer/releases) 页面下载 `QuickLook.Plugin.DwgsViewer.qlplugin`；

@@ -7,7 +7,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// CAD 引擎统一管理器（单例）。
     /// 四级引擎自适应调度：
     /// 1. WoutWare CadLib（WW.Cad.dll 动态驱动，纯实例无锁极速渲染）
-    /// 2. CADSoftTools（CADImport.dll 动态驱动，内置试用补丁与多线程防崩锁）
+    /// 2. CADSoftTools（CADImport.dll 动态驱动，多线程安全矢量渲染）
     /// 3. ACadSharp 原生开源矢量引擎（100% MIT 开源合规，图块展开、凸度圆角、中文排版）
     /// 4. Built-in 原生文件头与系统外壳引擎（0.3ms DWG 二进制预览位图提取 + Windows Shell 保底）
     /// </summary>

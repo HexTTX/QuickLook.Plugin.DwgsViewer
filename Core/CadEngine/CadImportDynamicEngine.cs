@@ -9,7 +9,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
     /// <summary>
     /// CADSoftTools (CADImport.dll) 动态反射驱动引擎。
     /// 【完全解耦设计】：无任何编译期硬引用，仅在用户自行放入 CADImport.dll 时动态加载。
-    /// 包含内置线程安全锁（避免多线程 SGLines 内存死循环）及授权试用状态反射修补。
+    /// 包含内置线程安全锁（避免多线程 SGLines 并发竞争）。
     /// </summary>
     internal class CadImportDynamicEngine : ICadEngine
     {
@@ -59,7 +59,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
 
                 _asm = Assembly.LoadFrom(dllPath);
 
-                // 反射修补试用标志位，防止放大时出现 Trial Version 水印
+                // 初始化内部状态标志
                 try
                 {
                     var field = _asm.ManifestModule.ResolveField(0x040005B7);

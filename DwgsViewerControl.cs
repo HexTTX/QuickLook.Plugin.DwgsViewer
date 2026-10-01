@@ -504,8 +504,8 @@ namespace QuickLook.Plugin.DwgsViewer
 
             _btnBackToGrid = new Button
             {
-                Content = "◀ 全部图纸",
-                ToolTip = "返回缩略图网格 (鼠标侧键后退 / Backspace / Alt+←)",
+                Content = "◀ 目录图纸",
+                ToolTip = "返回目录图纸网格 (鼠标侧键后退 / Backspace / Alt+←)",
                 Background = DarkToolbarBg,
                 Foreground = TextPrimaryDark,
                 BorderBrush = DarkCardBorder,
@@ -892,6 +892,10 @@ namespace QuickLook.Plugin.DwgsViewer
             {
                 _gridView.Visibility = Visibility.Collapsed;
                 _detailView.Visibility = Visibility.Visible;
+
+                // 仅当同目录存在其他 DWG/DXF 图纸时，才显示「◀ 目录图纸」返回按钮
+                if (_btnBackToGrid != null)
+                    _btnBackToGrid.Visibility = _allDrawingFiles.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -928,6 +932,12 @@ namespace QuickLook.Plugin.DwgsViewer
 
                 _filteredFiles = new List<string>(_allDrawingFiles);
                 ResetAndLoadFirstPage();
+
+                // 首次打开默认直接进入单图大图详情视图（与 SLB 查看器行为一致）
+                _currentIndex = Math.Max(0, Math.Min(_currentIndex, _allDrawingFiles.Count - 1));
+                _currentMode = ViewMode.Detail;
+                UpdateViewVisibility();
+                RenderCurrentDetailSlide();
             }
             catch (Exception ex)
             {
@@ -1331,13 +1341,20 @@ namespace QuickLook.Plugin.DwgsViewer
 
         private void SwitchToGridView()
         {
+            // 先切换可见性，确保网格控件获得真实宽度，卡片尺寸计算准确
+            _currentMode = ViewMode.Grid;
+            UpdateViewVisibility();
+
             while (_loadedCount <= _currentIndex && _loadedCount < _filteredFiles.Count)
             {
                 LoadNextPage();
             }
 
-            _currentMode = ViewMode.Grid;
-            UpdateViewVisibility();
+            double currentWidth = _scrollViewer.ViewportWidth > 0 ? _scrollViewer.ViewportWidth : _scrollViewer.ActualWidth;
+            if (currentWidth > 100)
+            {
+                UpdateGridLayout(currentWidth);
+            }
 
             Dispatcher.BeginInvoke(new Action(() =>
             {

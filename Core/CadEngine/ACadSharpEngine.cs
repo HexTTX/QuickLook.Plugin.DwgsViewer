@@ -84,7 +84,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core.CadEngine
                 var bmp = new Bitmap(width, height);
                 using (var g = Graphics.FromImage(bmp))
                 {
-                    g.Clear(isDark ? Color.FromArgb(24, 24, 26) : Color.White);
+                    g.Clear(isDark ? Color.Black : Color.White);
                     g.SmoothingMode = SmoothingMode.AntiAlias;
 
                     // 按颜色批次绘制线段
