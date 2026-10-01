@@ -1,8 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
-
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
     public static class CadAutomationHelper
@@ -117,21 +117,25 @@ namespace QuickLook.Plugin.DwgsViewer.Core
 
             try
             {
-                dynamic app = cadApp;
+                Type appType = cadApp.GetType();
 
                 // 尝试前置 CAD 窗口
                 try
                 {
-                    app.Visible = true;
-                    IntPtr hwnd = new IntPtr(app.HWND);
-                    if (hwnd != IntPtr.Zero)
+                    appType.InvokeMember("Visible", BindingFlags.SetProperty, null, cadApp, new object[] { true });
+                    object? hwndObj = appType.InvokeMember("HWND", BindingFlags.GetProperty, null, cadApp, null);
+                    if (hwndObj is int hwndInt && hwndInt != 0)
                     {
-                        SetForegroundWindow(hwnd);
+                        SetForegroundWindow(new IntPtr(hwndInt));
+                    }
+                    else if (hwndObj is long hwndLong && hwndLong != 0)
+                    {
+                        SetForegroundWindow(new IntPtr(hwndLong));
                     }
                 }
                 catch { }
 
-                dynamic activeDoc = app.ActiveDocument;
+                object? activeDoc = appType.InvokeMember("ActiveDocument", BindingFlags.GetProperty, null, cadApp, null);
                 if (activeDoc == null)
                 {
                     statusMessage = $"{cadName} 未打开任何图纸";
@@ -143,7 +147,7 @@ namespace QuickLook.Plugin.DwgsViewer.Core
 
                 // 发送插入块命令
                 // AutoCAD / 浩辰 / 中望 支持标准命令: _-INSERT "文件路径" (自动启动交互式定位)
-                activeDoc.SendCommand($"_-INSERT \"{formattedPath}\" \n");
+                activeDoc.GetType().InvokeMember("SendCommand", BindingFlags.InvokeMethod, null, activeDoc, new object[] { $"_-INSERT \"{formattedPath}\" \n" });
 
                 statusMessage = $"已发送至 {cadName}！请在 CAD 画布中点选插入位置";
                 return true;

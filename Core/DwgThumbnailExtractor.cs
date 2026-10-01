@@ -1,8 +1,10 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
+using CADImport;
 
 namespace QuickLook.Plugin.DwgsViewer.Core
 {
@@ -12,6 +14,66 @@ namespace QuickLook.Plugin.DwgsViewer.Core
             0x1F, 0x25, 0x6D, 0x07, 0xD4, 0x36, 0x28, 0x28,
             0x9D, 0x57, 0xCA, 0x3F, 0x9D, 0x44, 0x10, 0x2B
         };
+
+        public static Bitmap? RenderCadDrawing(string filePath, int width, int height, bool isDark)
+        {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                return null;
+
+            // 1. 优先使用 CADImport 完整矢量引擎渲染（与 QuickLook.Plugin.CADImport 一致，完整呈现图元、线型与尺寸）
+            try
+            {
+                var cadImage = CADImage.CreateImageByExtension(filePath);
+                if (cadImage != null)
+                {
+                    cadImage.LoadFromFile(filePath);
+
+                    cadImage.BackgroundColor = isDark ? Color.Black : Color.White;
+                    cadImage.DefaultColor = isDark ? Color.White : Color.Black;
+                    if (cadImage.Painter != null && cadImage.Painter.Settings != null)
+                    {
+                        cadImage.Painter.Settings.BackgroundColor = (isDark ? Color.Black : Color.White).ToArgb();
+                        cadImage.Painter.Settings.DefaultColor = (isDark ? Color.White : Color.Black).ToArgb();
+                    }
+
+                    double imgW = cadImage.AbsWidth;
+                    double imgH = cadImage.AbsHeight;
+                    if (imgW <= 0) imgW = 100;
+                    if (imgH <= 0) imgH = 100;
+
+                    Bitmap bmp = new Bitmap(width, height);
+                    using (Graphics g = Graphics.FromImage(bmp))
+                    {
+                        g.Clear(isDark ? Color.FromArgb(24, 24, 26) : Color.White);
+                        g.SmoothingMode = SmoothingMode.AntiAlias;
+                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+                        float wh = (float)(imgW / imgH);
+                        float new_wh = (float)width / height;
+                        SizeF visibleArea;
+                        if (new_wh > wh)
+                            visibleArea = new SizeF(height * wh, height);
+                        else
+                            visibleArea = new SizeF(width, width / wh);
+
+                        float left = (width - visibleArea.Width) / 2f;
+                        float top = (height - visibleArea.Height) / 2f;
+                        RectangleF rect = new RectangleF(left, top, visibleArea.Width, visibleArea.Height);
+
+                        cadImage.Draw(g, rect);
+                    }
+                    cadImage.Dispose();
+                    return bmp;
+                }
+            }
+            catch
+            {
+                // 降级使用文件头内嵌图
+            }
+
+            // 2. 备用引擎：DWG 二进制文件头内嵌位图 / Windows Shell
+            return ExtractThumbnail(filePath, width);
+        }
 
         public static Bitmap? ExtractThumbnail(string filePath, int targetSize = 256)
         {

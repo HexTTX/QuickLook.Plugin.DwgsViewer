@@ -27,7 +27,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
-    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="CADImport">
+      <HintPath Condition="Exists('References\CADImport.dll')">References\CADImport.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="QuickLook.Common">
       <HintPath Condition="Exists('References\QuickLook.Common.dll')">References\QuickLook.Common.dll</HintPath>
       <HintPath Condition="!Exists('References\QuickLook.Common.dll') And Exists('D:\Program Files\QuickLook\QuickLook.Common.dll')">D:\Program Files\QuickLook\QuickLook.Common.dll</HintPath>

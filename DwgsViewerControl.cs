@@ -1281,9 +1281,10 @@ namespace QuickLook.Plugin.DwgsViewer
                     if (filePath == null) break;
                     if (_thumbnailCache.ContainsKey(filePath)) continue;
 
+                    bool isDark = _isDarkBackground;
                     try
                     {
-                        using (var bmp = DwgThumbnailExtractor.ExtractThumbnail(filePath, thumbSize))
+                        using (var bmp = DwgThumbnailExtractor.RenderCadDrawing(filePath, thumbSize, (int)(thumbSize * 0.75), isDark))
                         {
                             if (bmp != null)
                             {
@@ -1402,12 +1403,13 @@ namespace QuickLook.Plugin.DwgsViewer
 
                 _context.Title = $"[{_currentIndex + 1}/{_allDrawingFiles.Count}] {fileName} - {Path.GetFileName(_folderPath)}";
 
-                // 高清提取图纸缩略图或预览图
+                // 高清高质量 CAD 矢量渲染（全图元、颜色、尺寸与线型）
                 DpiScale dpi = GetCurrentDpi();
                 float dpiFactor = (float)dpi.DpiScaleX;
-                int renderSize = (int)Math.Max(1024, 800 * dpiFactor);
+                int renderW = (int)Math.Max(1600, 1200 * dpiFactor);
+                int renderH = (int)Math.Max(1200, 900 * dpiFactor);
 
-                Bitmap? newBitmap = DwgThumbnailExtractor.ExtractThumbnail(filePath, renderSize);
+                Bitmap? newBitmap = DwgThumbnailExtractor.RenderCadDrawing(filePath, renderW, renderH, _isDarkBackground);
 
                 if (newBitmap == null)
                 {
